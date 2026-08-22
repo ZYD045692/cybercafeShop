@@ -147,10 +147,14 @@ async function loadQr() {
   } catch { /* 拿不到局域网 IP 时只隐藏二维码，不影响弹窗其它功能 */ }
 }
 
-const filtered = computed(() => products.value.filter(p =>
-  (!cls.value || p.class === cls.value) &&
-  (stateFilter.value === 'all' || (stateFilter.value === 'on' ? !!p.state : !p.state)) &&
-  (!kw.value || p.name.includes(kw.value) || p.abbr.includes(kw.value.toLowerCase()))))
+const filtered = computed(() => {
+  // 搜索词先去空格 + 转小写：只输空格当作没搜（否则搜不到），名称/缩拼都统一用小写匹配（大小写不敏感）
+  const q = kw.value.trim().toLowerCase()
+  return products.value.filter(p =>
+    (!cls.value || p.class === cls.value) &&
+    (stateFilter.value === 'all' || (stateFilter.value === 'on' ? !!p.state : !p.state)) &&
+    (!q || p.name.toLowerCase().includes(q) || p.abbr.includes(q)))
+})
 
 // 空状态提示：类别照打（「全部」→「全部商品」，具体分类 →「XX的商品」）；
 // 状态只有「正在销售/停止销售」才打，「全部」不打

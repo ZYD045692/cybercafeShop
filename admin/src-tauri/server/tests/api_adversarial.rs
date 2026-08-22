@@ -651,3 +651,83 @@ fn t37_records_filter_and_sum() {
     assert_eq!(get(&env.url("/api/admin/records?pay=cash")).0, 200, "现金是合法支付方式");
     assert_eq!(get(&env.url("/api/admin/records?pay=visa")).0, 400);
 }
+
+// 管理端按 id 传图：图片名由服务端按商品最终缩拼生成并回填 gds_pic，
+// 不再由前端命名（同缩拼时唯一化 whh/whh_1，图片互相不覆盖）
+#[test]
+fn t38_admin_upload_image_by_id() {
+    let env = TestEnv::new("A");
+    let jpg = [0xFF, 0xD8, 0xFF, 0xE0, 1, 2, 3];
+    // 先建商品（缩拼 xnyl，不与夹具的 bskl 冲突），再按 id 传图
+    let (code, add) = post_json(&env.url("/api/admin/product"),
+        json!({"name":"新上架饮料","class":"饮料","abbr":"xnyl","jhj":2.0,"price":4.0}));
+    assert_eq!(code, 200);
+    let id = add["id"].as_i64().unwrap();
+    assert_eq!(post_bytes(&env.url(&format!("/api/admin/product/{id}/image")), &jpg).0, 200);
+    // 文件按缩拼落盘
+    assert!(env.base.join("data/image/xnyl.jpg").exists(), "图片应按缩拼落盘");
+    // gds_pic 回填为缩拼文件名
+    let (_, prods) = get(&env.url("/api/admin/products"));
+    let p = prods["products"].as_array().unwrap().iter().find(|p| p["id"] == id).unwrap();
+    assert_eq!(p["pic"], "xnyl.jpg", "gds_pic 应由服务端回填为最终缩拼");
+    // 立即可取
+    assert_eq!(get(&env.url("/image/xnyl.jpg")).0, 200);
+    // 不存在商品 / 空 body / 非图片
+    assert_eq!(post_bytes(&env.url("/api/admin/product/9999/image"), &jpg).0, 400);
+    assert_eq!(post_bytes(&env.url(&format!("/api/admin/product/{id}/image")), &[]).0, 400);
+    assert_eq!(post_bytes(&env.url(&format!("/api/admin/product/{id}/image")), b"not image").0, 400);
+}
+
+// 图裂回归：两个同缩拼商品，图片名随最终缩拼（whh / whh_1）各自独立。
+// 删除其中一个只删自己的图，绝不误删另一个仍在引用的图。
+#[test]
+fn t39_same_abbr_pic_not_overwritten() {
+    let env = TestEnv::new("A");
+    let jpg_a: [u8; 6] = [0xFF, 0xD8, 0xFF, 0xE0, b'A', b'A'];
+    let jpg_b: [u8; 6] = [0xFF, 0xD8, 0xFF, 0xE0, b'B', b'B'];
+    let (_, a) = post_json(&env.url("/api/admin/product"),
+        json!({"name":"娃哈哈1","class":"饮料","abbr":"whh","price":3.0}));
+    let (_, b) = post_json(&env.url("/api/admin/product"),
+        json!({"name":"娃哈哈2","class":"饮料","abbr":"whh","price":3.0}));
+    let id_a = a["id"].as_i64().unwrap();
+    let id_b = b["id"].as_i64().unwrap();
+    // 各传图：文件名随最终缩拼，互不覆盖
+    assert_eq!(post_bytes(&env.url(&format!("/api/admin/product/{id_a}/image")), &jpg_a).0, 200);
+    assert_eq!(post_bytes(&env.url(&format!("/api/admin/product/{id_b}/image")), &jpg_b).0, 200);
+    let (_, prods) = get(&env.url("/api/admin/products"));
+    let pa = prods["products"].as_array().unwrap().iter().find(|p| p["id"] == id_a).unwrap();
+    let pb = prods["products"].as_array().unwrap().iter().find(|p| p["id"] == id_b).unwrap();
+    assert_eq!(pa["abbr"], "whh");
+    assert_eq!(pb["abbr"], "whh_1", "同缩拼后端应唯一化补后缀");
+    assert_eq!(pa["pic"], "whh.jpg");
+    assert_eq!(pb["pic"], "whh_1.jpg", "两张图文件名不同，互不覆盖");
+    let dir = env.base.join("data/image");
+    assert_eq!(dir.join("whh.jpg").exists(), true);
+    assert_eq!(dir.join("whh_1.jpg").exists(), true);
+    assert_eq!(std::fs::read(dir.join("whh.jpg")).unwrap(), jpg_a.to_vec());
+    assert_eq!(std::fs::read(dir.join("whh_1.jpg")).unwrap(), jpg_b.to_vec());
+    // 删除 A：只删它的 whh.jpg，B 的 whh_1.jpg 仍在
+    let (code, _) = unwrap_resp(ureq::delete(&env.url(&format!("/api/admin/product/{id_a}"))).call());
+    assert_eq!(code, 200);
+    assert!(!dir.join("whh.jpg").exists(), "删 A 应连带删它的图");
+    assert!(dir.join("whh_1.jpg").exists(), "B 的图不能被误删");
+}
+
+// 下单报错文案（顾客直接可见）：下架带商品名、删除提示删除，不吞裸错误
+#[test]
+fn t40_order_error_mentions_product() {
+    let env = TestEnv::new("A");
+    // 下架商品1（名字含 variant "A"）后下单 → 报错带商品名 + “下架”
+    assert_eq!(post_json(&env.url("/api/admin/product/1/state"), json!({"state":0})).0, 200);
+    let (code, resp) = post_json(&env.url("/api/order"),
+        json!({"machine":"PC-01","pay_method":"wechat","items":[{"id":1,"qty":1}]}));
+    assert_eq!(code, 400);
+    let err = resp["error"].as_str().unwrap();
+    assert!(err.contains("下架"), "下架报错应提示下架: {err}");
+    assert!(err.contains("测试可乐A"), "下架报错应带商品名: {err}");
+    // 删除场景：下单不存在的商品 → 报错提示删除
+    let (code, resp) = post_json(&env.url("/api/order"),
+        json!({"machine":"PC-01","pay_method":"wechat","items":[{"id":9999,"qty":1}]}));
+    assert_eq!(code, 400);
+    assert!(resp["error"].as_str().unwrap().contains("删除"), "删除报错应提示删除");
+}

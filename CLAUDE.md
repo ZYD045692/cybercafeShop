@@ -26,8 +26,8 @@ node scripts/bump-version.js 0.3.0  # 一键改版本号（同步 package.json/t
 
 注意：`npm test` 只针对服务端 crate（`--manifest-path admin/src-tauri/server/Cargo.toml`），前端、Tauri 壳、GUI（托盘/通知卡片/穿透/警告框）没有自动化测试，后者靠 Windows 真机人工验证。测试全部用 `tempfile` 临时目录 + `DATA_DIR` 隔离，绝不碰生产/开发数据。
 
-**测试分布（共 52 项，`cargo test` 一次跑完，所有测试都要通过再交）**：
-- `server/tests/api_adversarial.rs`（29 项）：非法机台名/支付方式/数量、篡改价格、下架商品下单、路径穿越文件名、超大请求体、非本机调管理 API、并发下单销量一致性等对抗性用例。
+**测试分布（共 55 项，`cargo test` 一次跑完，所有测试都要通过再交）**：
+- `server/tests/api_adversarial.rs`（32 项）：非法机台名/支付方式/数量、篡改价格、下架商品下单、路径穿越文件名、超大请求体、非本机调管理 API、并发下单销量一致性等对抗性用例；另有管理端按 id 传图按缩拼命名回填、同缩拼图片互不覆盖/删除不误删、下单报错带商品名（下架/删除）等回归用例。
 - `server/tests/auth_shopinfo.rs`（8 项）：无签名 403、伪造/超窗签名 403、header 与 query 两种签名方式、生产模式本机免票、shopinfo 默认值与修改、缩拼自动生成与回填。
 - `server/tests/mobile_host.rs`（7 项）：手机端分类/建商品/传图全链路、字段校验、缩拼冲突唯一化、图片魔数与大小校验、重传覆盖、hostinfo 返回可用局域网 IP（非链路本地/fake-ip）。
 - `server/src/announce.rs`（4，单测）：`build_playlist` 纯函数（机台名拼字、跳非 ASCII/缺失文件、全中文回退 message.wav、call）。
@@ -133,7 +133,7 @@ admin/src-tauri/server/src/
 
 ### 语音播报（announce.rs）
 
-单工作线程 + 标准 mpsc FIFO，`PlaySoundW(SND_SYNC)` 前一条完整播完才播下一条。规则：
+单工作线程 + **无界** mpsc FIFO，`PlaySoundW(SND_SYNC)` 前一条完整播完才播下一条。**原则：所有播报都必须播、绝不丢**（`send` 不阻塞不丢；改这条前先确认是否违背此约定）。呼叫去重表用 `retain` 只保留 30s 窗口内的机台，不随 24h 运行无限累积。规则：
 - 下单：机台名拆成字母/数字逐个播（`0-9.wav`/`A-Z.wav`）→ `order.wav`；机台名全是中文/符号时改播 `message.wav`。
 - 呼叫：机台号逐个播 → `call.wav`；同一机台 **30 秒内重复呼叫跳过**（防刷屏）。
 - 机台名取 `COMPUTERNAME`（不是用户名）；缺哪个 wav 跳过哪个。
@@ -162,6 +162,7 @@ admin/src-tauri/server/src/
 - **打包链**（`scripts/pack.js`）：`build:mobile`（手机页 → `mobile/dist`，tauri 打包时作为 `seed/web/m` 带进管理端安装包）→ tauri build 管理端（NSIS 内嵌管理端 exe+网页+seed）→ tauri build 用户端（网页内嵌 exe）→ 组装 `dist/`。
 - **不要把 package-lock.json 打进源码包**：Linux 生成的 lockfile 在 Windows 会缺平台可选依赖，对方 `npm install` 会报错；源码包内用 `install.bat` 重新生成。（`package-lock.json` 已被 `.gitignore` 忽略，别手动跟踪它。）
 - **Rust 侧禁止用 `Command::new(...).output()` 启动控制台子进程**：release 的 GUI 程序（管理端/用户端 exe）没有控制台，启动 ipconfig/ssh-keygen 这类控制台程序会瞬间弹一个空白控制台窗口再消失（实际表现为「切到某个页面闪一个透明窗」），dev 从命令行跑子进程继承控制台故不弹——这就是典型的「dev 正常、release 异常」。取本机局域网 IP 用 `UdpSocket` 路由法（`admin.rs::lan_ip` 已踩坑改回）；确实要调外部命令时用 `creation_flags(CREATE_NO_WINDOW)`。
+- **管理端服务端初始化失败会弹系统警告框**：GUI 程序没有控制台，`server::build_state_with` 失败（数据库打不开）或端口被占用（`TcpListener::bind` 预检）由 `lib.rs::fatal_popup` 弹 `MessageBoxW` 并优雅退出，不再 `expect(...)` panic 闪退。别改回 eprintln/panic——否则吧台机启动时窗口照开、各页「加载失败」、客户机/手机全连不上，极难排查。
 
 ## 改动指引
 
@@ -172,3 +173,4 @@ admin/src-tauri/server/src/
 - **两端图片编辑器是同一套交互**（`admin/src/components/ImageEditor.vue` 与 `mobile/src/components/ImageEditor.vue`），改一处必须同步另一处。共同点：选图→空白画布→两个独立进度条（「下载模型」仅首次无缓存时出现、用 `bgrem.js::loadModel` 报的真实 fetch 进度；「处理图片」用 `startProcessProgress`/`stopProcessProgress` 定时器模拟，90% 封顶完成跳 100）→抠图填充→旋转/缩放/翻转→应用导出 300×300；处理中「应用」有守卫。差异仅：手机端多拍照入口（`cameraInput`/`enterFrom`）、失败回选图页、触摸事件；管理端失败留空白画布。缩拼生成两端一致（名称变化无条件重算，见 `Products.vue::watch(name)` 与 `AddProduct.vue::onName`）。
 - **图片命名两端一致，别改成前端传缩拼名**：都「先建商品拿 id → 再按 id 传图」，文件名由服务端 `product_abbr(id)` 取唯一化缩拼命名并 `set_product_pic` 回填——管理端走 `/api/admin/product/{id}/image`（`admin.rs::upload_product_image`），手机端走 `/api/m/product/{id}/image`（`mobile.rs::upload_product_image`），共用 `db.rs` 的 `product_abbr`/`set_product_pic`。旧接口 `/api/admin/image/{name}`（前端定名）已废弃给商品图用，若前端改成传缩拼名做图片文件，同缩拼商品会互覆、删除时误删共用图。
 - **管理端常驻运行，图片编辑的内存清理是硬约束**（吧台机 24h 跑，泄漏会累积）：① `el-dialog` 必须 `destroy-on-close`，否则关闭弹窗内容不销毁、ImageEditor 不卸载；② **抠图放一次性 Web Worker**（`bgrem.js` 调度 + `bgrem-worker.js` 执行），用完 `worker.terminate()` —— onnxruntime 的 WASM 堆只 grow 不 shrink，`dispose()` 拿不回内存，唯有销毁 worker 才能把 ~200MB 整体归还 OS；③ ImageEditor `onUnmounted` 清假进度定时器、revoke blob URL、置 `unmounted` 守卫（异步 `cutout` 返回后若组件已卸载则丢弃结果、不再 `createObjectURL`，防中途取消泄漏 blob）；④ `URL.createObjectURL` 创建的 blob URL 换图/卸载时 revoke（Products 的 `previewBlobUrl`、ImageEditor 的 `imgBlobUrl`）；⑤ `bgrem.js` 不 import rmbg、`Products.vue` 的 ImageEditor 用 `defineAsyncComponent` 懒加载，onnxruntime-web（约 1MB JS）不进主 bundle、首次抠图才加载。手机端不受影响（短时页面，关标签页即回收，仍走每次 `cutout` `finally` dispose）。
+- **用户端下单是「防连点 + 失败兜底」**：`client/src/App.vue` 的 `submit()` 开头 `if (submitting.value) return` 防连点（双击/网络卡不出重复订单），成功清空购物车；失败时调 `loadProducts()` 刷新商品+分类、把购物车里已下架/已删条目清掉、在售的同步最新价，再弹**服务端返回的真实原因**。改下单报错文案时注意：`db.rs::place_order` 对「查不到在售价」的商品二次查 `gds_name` 区分——能查到 = 下架（「「xx」刚被吧台下架了」）、查不到 = 删除（「有商品刚被吧台删除了」），这条消息会原样显示给顾客。

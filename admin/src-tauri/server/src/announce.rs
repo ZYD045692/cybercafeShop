@@ -31,12 +31,15 @@ pub struct Announcer {
 
 impl Announcer {
     pub fn spawn(sound_dir: PathBuf) -> Announcer {
+        // 无界队列：原则是所有播报都必须播（mpsc 无界，send 不阻塞、不丢）。
         let (tx, rx) = channel::<Msg>();
         std::thread::spawn(move || {
             let mut last_call: HashMap<String, Instant> = HashMap::new();
             while let Ok(msg) = rx.recv() {
                 if msg.kind == Kind::Call {
                     let now = Instant::now();
+                    // 只保留 30s 内叫过的机台：键是任意 ≤64 字符机器名，不清会随 24h 无限累积
+                    last_call.retain(|_, t| now.duration_since(*t) < Duration::from_secs(30));
                     if let Some(t) = last_call.get(&msg.machine) {
                         if now.duration_since(*t) < Duration::from_secs(30) {
                             continue; // 30秒内重复呼叫，跳过
@@ -54,6 +57,7 @@ impl Announcer {
     }
 
     pub fn announce(&self, machine: &str, kind: Kind) {
+        // send（无界队列）：所有播报都必须播，绝不丢——即使播报来不及，也只是在内存里排队等
         let _ = self.tx.send(Msg { machine: machine.to_string(), kind });
     }
 }
