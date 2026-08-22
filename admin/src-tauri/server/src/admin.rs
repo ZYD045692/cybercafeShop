@@ -255,6 +255,19 @@ async fn delete_category(
 
 // ---------------- 图片上传 ----------------
 
+/// 图片字节校验：非空、≤2MB、JPG/PNG 魔数。upload_image 与 upload_product_image 共用。
+fn check_image(body: &Bytes) -> Result<(), &'static str> {
+    if body.is_empty() || body.len() > 2 * 1024 * 1024 {
+        return Err("图片大小非法");
+    }
+    let is_jpg = body.starts_with(&[0xFF, 0xD8, 0xFF]);
+    let is_png = body.starts_with(&[0x89, 0x50, 0x4E, 0x47]);
+    if !is_jpg && !is_png {
+        return Err("只接受 JPG/PNG 图片");
+    }
+    Ok(())
+}
+
 /// 前端已用 canvas 裁剪压缩成 300x300 JPEG/PNG，这里只校验头、写盘。
 async fn upload_image(
     State(ctx): State<Arc<AdminCtx>>,
@@ -264,17 +277,41 @@ async fn upload_image(
     if !crate::server::valid_filename(&name) {
         return err(StatusCode::BAD_REQUEST, "文件名非法");
     }
-    if body.is_empty() || body.len() > 2 * 1024 * 1024 {
-        return err(StatusCode::BAD_REQUEST, "图片大小非法");
-    }
-    let is_jpg = body.starts_with(&[0xFF, 0xD8, 0xFF]);
-    let is_png = body.starts_with(&[0x89, 0x50, 0x4E, 0x47]);
-    if !is_jpg && !is_png {
-        return err(StatusCode::BAD_REQUEST, "只接受 JPG/PNG 图片");
+    if let Err(e) = check_image(&body) {
+        return err(StatusCode::BAD_REQUEST, e);
     }
     match std::fs::write(ctx.image_dir.join(&name), &body) {
         Ok(()) => (StatusCode::OK, Json(json!({"ok":true}))),
         Err(e) => err(StatusCode::INTERNAL_SERVER_ERROR, &e.to_string()),
+    }
+}
+
+/// 管理端「先建商品、再按 id 传图」：图片文件名由服务端按该商品最终缩拼生成回填。
+/// 缩拼在建商品时已唯一化（whh → whh_1），图随缩拼走，避免同缩拼商品互覆、删除时误删共用图。
+/// 与手机端 mobile.rs::upload_product_image 同一套逻辑（这里挂在 localhost_only 守卫下）。
+async fn upload_product_image(
+    State(ctx): State<Arc<AdminCtx>>,
+    axum::extract::Path(id): axum::extract::Path<i64>,
+    body: Bytes,
+) -> (StatusCode, Json<Value>) {
+    if let Err(e) = check_image(&body) {
+        return err(StatusCode::BAD_REQUEST, e);
+    }
+    let abbr = match ctx.db.product_abbr(id) {
+        Ok(a) if !a.is_empty() => a,
+        Ok(_) => return err(StatusCode::BAD_REQUEST, "商品缩拼为空，无法命名图片"),
+        Err(e) => return err(StatusCode::BAD_REQUEST, &e),
+    };
+    let name = format!("{abbr}.jpg");
+    if !crate::server::valid_filename(&name) {
+        return err(StatusCode::INTERNAL_SERVER_ERROR, "缩拼生成文件名非法");
+    }
+    if let Err(e) = std::fs::write(ctx.image_dir.join(&name), &body) {
+        return err(StatusCode::INTERNAL_SERVER_ERROR, &e.to_string());
+    }
+    match ctx.db.set_product_pic(id, &name) {
+        Ok(()) => (StatusCode::OK, Json(json!({"ok": true, "pic": name}))),
+        Err(e) => err(StatusCode::INTERNAL_SERVER_ERROR, &e),
     }
 }
 
@@ -374,6 +411,7 @@ pub fn admin_router(ctx: Arc<AdminCtx>) -> Router {
         .route("/api/admin/products", axum::routing::get(admin_products))
         .route("/api/admin/product", axum::routing::post(upsert_product))
         .route("/api/admin/product/{id}/state", axum::routing::post(set_product_state))
+        .route("/api/admin/product/{id}/image", axum::routing::post(upload_product_image))
         .route("/api/admin/product/{id}", axum::routing::delete(delete_product))
         .route("/api/admin/categories", axum::routing::get(admin_categories))
         .route("/api/admin/category", axum::routing::post(add_or_rename_category))

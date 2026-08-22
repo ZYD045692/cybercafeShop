@@ -209,16 +209,22 @@ async function save() {
     if (!f.name.trim()) throw new Error('请填写商品名称')
     if (!f.id && !f.abbr.trim()) throw new Error('该商品名生成不出缩拼，请手动填写')
     if (f.price <= 0) throw new Error('售价不能为 0')
-    let pic
+    // 先建商品/更新拿到 id（图片名不由前端指定，见下）
+    const { id } = await post('/api/admin/product', { id: f.id, name: f.name, class: f.class, abbr: f.abbr, jhj: f.jhj, price: f.price })
+    // 有图再按 id 传图：服务端用该商品「最终缩拼」命名并回填 gds_pic
+    // （缩拼在建商品时已唯一化 whh→whh_1，同缩拼商品图片名不冲突，删除也不误删共用图）
+    let imgFailed = null
     if (picBlob.value) {
-      const name = (f.abbr || 'p' + Date.now()) + '.jpg'
-      await upload('/api/admin/image/' + name, picBlob.value)
-      pic = name
+      try {
+        await upload('/api/admin/product/' + id + '/image', picBlob.value)
+      } catch (e) { imgFailed = e.message }
     }
-    await post('/api/admin/product', { id: f.id, name: f.name, class: f.class, abbr: f.abbr, jhj: f.jhj, price: f.price, pic })
+    // 商品已建好（即使图片失败）：关弹窗 + 提示，避免用户以为失败重复点保存建出重复商品
     editing.value = false
     imgT.value = Date.now()
-    ElMessage.success(f.id ? '商品已更新' : '商品已添加')
+    ElMessage.success(imgFailed
+      ? `商品已保存，但图片上传失败（${imgFailed}），可重新点击编辑补传`
+      : (f.id ? '商品已更新' : '商品已添加'))
     reload()
   } catch (ex) { err.value = ex.message }
 }
