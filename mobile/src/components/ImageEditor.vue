@@ -103,6 +103,7 @@ const cv = ref(null)
 const enterFrom = ref('gallery') // 记录本次进图来源：camera=拍照 / gallery=相册，重选时据此弹对应入口
 
 let processTimer = null
+let imgBlobUrl = '' // 抠图结果的 blob URL：卸载时 revoke，避免每编辑一次泄漏一个 blob
 // 处理图片阶段假进度：抠图库无真实进度回调，用定时器平滑爬升到 90% 封顶，真正完成时跳到 100。
 // 下载模型阶段用 bgrem.js 报的真实 fetch 进度，不在这里模拟。
 function startProcessProgress() {
@@ -123,6 +124,7 @@ function stopProcessProgress() {
 onUnmounted(() => {
   clearInterval(processTimer)
   disposeBgrem()
+  if (imgBlobUrl) { URL.revokeObjectURL(imgBlobUrl); imgBlobUrl = '' }
 })
 
 async function onFile(e, src = 'gallery') {
@@ -149,7 +151,9 @@ async function onFile(e, src = 'gallery') {
       }
     })
     stopProcessProgress()
-    loadImg(URL.createObjectURL(blob))
+    if (imgBlobUrl) { URL.revokeObjectURL(imgBlobUrl) } // 换图释放上一张 blob URL
+    imgBlobUrl = URL.createObjectURL(blob)
+    loadImg(imgBlobUrl)
   } catch (ex) {
     // 抠图失败：回到选图页重新选择（画布不留空白卡死）
     stopProcessProgress()

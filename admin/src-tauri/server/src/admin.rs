@@ -191,7 +191,15 @@ async fn delete_product(
     axum::extract::Path(id): axum::extract::Path<i64>,
 ) -> (StatusCode, Json<Value>) {
     match ctx.db.delete_product(id) {
-        Ok(()) => (StatusCode::OK, Json(json!({"ok":true}))),
+        Ok(pic) => {
+            // 连带删除图片文件，避免磁盘孤儿文件堆积（只取文件名部分，防路径穿越）
+            if let Some(pic) = pic {
+                if let Some(name) = std::path::Path::new(&pic).file_name() {
+                    let _ = std::fs::remove_file(ctx.image_dir.join(name));
+                }
+            }
+            (StatusCode::OK, Json(json!({"ok":true})))
+        }
         Err(e) => err(StatusCode::NOT_FOUND, &e),
     }
 }

@@ -444,15 +444,23 @@ impl Db {
         Ok(())
     }
 
-    pub fn delete_product(&self, id: i64) -> Result<(), String> {
+    /// 删除商品，返回被删商品的图片文件名（若有），由调用方清理磁盘文件，避免孤儿图片堆积
+    pub fn delete_product(&self, id: i64) -> Result<Option<String>, String> {
         let conn = self.conn.lock().unwrap();
+        let pic: Option<String> = conn
+            .query_row(
+                "SELECT gds_pic FROM shop_list WHERE id=?1",
+                params![id],
+                |r| r.get(0),
+            )
+            .ok();
         let n = conn
             .execute("DELETE FROM shop_list WHERE id=?1", params![id])
             .map_err(|e| e.to_string())?;
         if n == 0 {
             return Err("商品不存在".into());
         }
-        Ok(())
+        Ok(pic.filter(|p| !p.is_empty()))
     }
 
     pub fn add_category(&self, name: &str) -> Result<(), String> {

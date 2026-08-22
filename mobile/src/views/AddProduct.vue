@@ -44,7 +44,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, onBeforeUnmount } from 'vue'
 import { getCategories, addProduct, uploadProductImage } from '../api'
 import { genAbbr } from '../pinyin'
 import ImageEditor from '../components/ImageEditor.vue'
@@ -62,7 +62,12 @@ function onName() {
   abbr.value = genAbbr(name.value)
 }
 
+function revokePreview() {
+  if (picPreview.value) { URL.revokeObjectURL(picPreview.value); picPreview.value = '' }
+}
+
 function onImageDone(blob) {
+  revokePreview() // 重新编辑换图：释放上一张预览 blob
   picBlob.value = blob
   picPreview.value = URL.createObjectURL(blob)
   editorOpen.value = false
@@ -99,7 +104,7 @@ async function save() {
     // 也避免用户因图片报错重复点保存 → 重复建出 xx_1 商品
     name.value = ''; abbr.value = ''; cat.value = cats.value[0]?.name || ''
     jhj.value = 0; price.value = 0
-    picBlob.value = null; picPreview.value = ''
+    picBlob.value = null; revokePreview() // 释放预览 blob，连续添加不累积
     if (imgFailed) {
       ElMessage.warning('商品已保存，但图片上传失败：' + imgFailed + '，可在管理端补传')
     } else {
@@ -111,6 +116,9 @@ async function save() {
     saving.value = false
   }
 }
+
+// 页面被切走时兜底释放（连续添加场景正常路径已在保存时 revoke）
+onBeforeUnmount(revokePreview)
 
 onMounted(async () => {
   try {
