@@ -21,10 +21,16 @@
           <!-- 预览画布 = 最终保存的 300×300 白底图，所见即所得 -->
           <canvas ref="cv" width="300" height="300" class="cv"
                   @mousedown="dragStart" @mousemove="dragMove" @mouseup="dragEnd" @mouseleave="dragEnd" />
-          <!-- 抠图/加载模型中：假进度条（首次加载模型会走一会，有缓存一闪而过） -->
-          <div v-if="processing" class="process">
-            <el-progress type="line" :percentage="Math.round(progress)" :stroke-width="6" :show-text="false" style="width:200px" />
-            <p>正在处理图片，首次加载模型需稍等…</p>
+          <!-- 处理中：下载模型（仅首次）+ 处理图片 两个独立进度条，各自 0→100% -->
+          <div v-if="downloading || processing" class="process">
+            <div v-if="downloading" class="proc-row">
+              <p>正在下载模型…</p>
+              <el-progress type="line" :percentage="Math.round(downloadProgress)" :stroke-width="6" :show-text="false" style="width:200px" />
+            </div>
+            <div v-if="processing" class="proc-row">
+              <p>正在处理图片…</p>
+              <el-progress type="line" :percentage="Math.round(processProgress)" :stroke-width="6" :show-text="false" style="width:200px" />
+            </div>
           </div>
         </div>
       </div>
@@ -85,23 +91,25 @@ const flipX = ref(false)
 const scale = ref(1)
 const fileInput = ref(null)
 const cv = ref(null)
-const processing = ref(false) // 抠图/加载模型处理中（显示假进度条）
-const progress = ref(0)       // 假进度 0~100
+const downloading = ref(false)   // 首次无缓存：正在下载模型（显示下载进度条）
+const downloadProgress = ref(0)  // 下载进度 0~100（真实 fetch 进度）
+const processing = ref(false)    // 处理图片中（显示处理进度条）
+const processProgress = ref(0)   // 处理图片假进度 0~100
 
-let progressTimer = null
-// 假进度：模型库无真实进度回调（只有 20/50/100 阶段锚点），用定时器平滑爬升到 90% 封顶，
-// 抠图真正完成时跳到 100。首次加载模型（无缓存）会多走一会，有缓存则一闪而过。
-function startFakeProgress() {
+let processTimer = null
+// 处理图片阶段假进度：抠图库无真实进度回调，用定时器平滑爬升到 90% 封顶，真正完成时跳到 100。
+// 下载模型阶段用 bgrem.js 报的真实 fetch 进度，不在这里模拟。
+function startProcessProgress() {
   processing.value = true
-  progress.value = 0
-  clearInterval(progressTimer)
-  progressTimer = setInterval(() => {
-    if (progress.value < 90) progress.value += 1 + Math.random() * 2
+  processProgress.value = 0
+  clearInterval(processTimer)
+  processTimer = setInterval(() => {
+    if (processProgress.value < 90) processProgress.value += 1 + Math.random() * 2
   }, 150)
 }
-function stopFakeProgress(p = 100) {
-  clearInterval(progressTimer)
-  progress.value = p
+function stopProcessProgress() {
+  clearInterval(processTimer)
+  processProgress.value = 100
   processing.value = false
 }
 
@@ -124,13 +132,26 @@ async function onFile(e) {
 // 选完图先显示空白画布（涂白），抠图后台完成后再填充抠好的透明图；失败保留空白并提示
 async function processFile(f) {
   render() // 立刻画一张空白 300×300 白底
-  startFakeProgress()
+  downloading.value = false
+  downloadProgress.value = 0
   try {
-    const blob = await cutout(f)
-    stopFakeProgress(100)
+    const blob = await cutout(f, ev => {
+      if (ev.stage === 'download') {
+        // 仅首次无缓存才走到这里：显示「下载模型」真实进度
+        downloading.value = true
+        downloadProgress.value = ev.percent ?? 0
+      } else if (ev.stage === 'image') {
+        // 模型就位，开始处理图片
+        downloading.value = false
+        downloadProgress.value = 100
+        startProcessProgress()
+      }
+    })
+    stopProcessProgress()
     loadImg(URL.createObjectURL(blob))
   } catch (ex) {
-    stopFakeProgress()
+    stopProcessProgress()
+    downloading.value = false
     ElMessage.warning('抠图失败：' + (ex?.message || ex) + '，可重新选图或直接填写其他信息')
   }
 }
@@ -217,7 +238,8 @@ header .t { font-size: 16px; font-weight: bold; }
 .tip { margin: 0; font-size: 12px; color: #a8abb2; text-align: center; }
 .cv { width: 300px; height: 300px; border: 1px solid #e4e7ed; border-radius: 8px; cursor: grab; }
 .cv-wrap { position: relative; }
-.process { position: absolute; inset: 0; background: rgba(255,255,255,.92); border-radius: 8px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; }
+.process { position: absolute; inset: 0; background: rgba(255,255,255,.92); border-radius: 8px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px; }
+.proc-row { display: flex; flex-direction: column; align-items: center; gap: 6px; }
 .process p { margin: 0; font-size: 13px; color: #606266; }
 .tools { padding: 0 16px 12px; }
 .row { margin-bottom: 12px; }

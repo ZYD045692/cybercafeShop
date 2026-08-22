@@ -56,34 +56,50 @@ async function setCached(url, buf) {
   }
 }
 
-/** 取模型数据：优先 IndexedDB 缓存，否则下载并缓存 */
-async function loadModel(url) {
+/** 取模型数据：优先 IndexedDB 缓存（source='cache'），否则流式下载（source='network'，onProgress 报下载进度） */
+async function loadModel(url, onProgress) {
   const cached = await getCached(url)
-  if (cached && cached.byteLength > 0) return cached
+  if (cached && cached.byteLength > 0) return { buf: cached, source: 'cache' }
+  onProgress?.(0)
   const r = await fetch(url)
   if (!r.ok) throw new Error('模型下载失败 ' + r.status)
-  const buf = await r.arrayBuffer()
+  const total = +r.headers.get('content-length') || 0
+  const reader = r.body.getReader()
+  const chunks = []
+  let received = 0
+  while (true) {
+    const { done, value } = await reader.read()
+    if (done) break
+    chunks.push(value)
+    received += value.length
+    if (total) onProgress?.(Math.round((received / total) * 100))
+  }
+  const bytes = new Uint8Array(received)
+  let off = 0
+  for (const c of chunks) { bytes.set(c, off); off += c.length }
+  const buf = bytes.buffer
   setCached(url, buf)
-  return buf
+  return { buf, source: 'network' }
 }
 
 /**
  * 抠图：返回透明背景 PNG Blob。
- * 模型首次加载（无缓存）才需要下载；之后从 IndexedDB 直接读。
- * 该库无内建进度回调，加载完成即算完成。
+ * 回调 onProgress({stage})：download（首次下载模型，带 percent 0~100）/ image（开始处理图片）/ done（完成）。
+ * 模型有缓存时直接读 IndexedDB（不报 download 阶段），无缓存才下载并缓存。
+ * 该库无内建进度回调，处理图片阶段由调用方模拟进度。
  * @param {File} file 原图
- * @param {(p:number)=>void} onProgress 0~100 进度
+ * @param {(e:{stage:string,percent?:number})=>void} onProgress
  */
 export async function cutout(file, onProgress) {
-  onProgress?.(20) // 提示用户：正在取模型（首次下载/读缓存）
-  const model = await loadModel(MODEL_URL)
-  onProgress?.(50) // 模型就位，开始抠图
+  const { buf, source } = await loadModel(MODEL_URL, p => onProgress?.({ stage: 'download', percent: p }))
+  if (source === 'network') onProgress?.({ stage: 'download', percent: 100 }) // 下载完成
+  onProgress?.({ stage: 'image' }) // 模型就位，开始抠图
   const blob = await removeBackground(file, {
     model: 'u2netp',
-    modelUrl: model,           // 直接喂内存里的模型，离线可用
+    modelUrl: buf,             // 直接喂内存里的模型，离线可用
     executionProviders: ['wasm'], // 强制 CPU/WASM，局域网 HTTP 下 WebGPU 不可用
     wasmPaths: BGREM_BASE,     // onnxruntime wasm（ort-wasm-simd-threaded.*）所在目录，结尾带 /
   })
-  onProgress?.(100)
+  onProgress?.({ stage: 'done' })
   return blob
 }

@@ -47,31 +47,50 @@ async function setCached(url, buf) {
   } catch { /* 隐私模式等场景静默跳过缓存 */ }
 }
 
-async function loadModel(url) {
+/** 取模型数据：优先 IndexedDB 缓存（source='cache'），否则流式下载（source='network'，onProgress 报下载进度） */
+async function loadModel(url, onProgress) {
   const cached = await getCached(url)
-  if (cached && cached.byteLength > 0) return cached
+  if (cached && cached.byteLength > 0) return { buf: cached, source: 'cache' }
+  onProgress?.(0)
   const r = await fetch(url)
   if (!r.ok) throw new Error('模型下载失败 ' + r.status)
-  const buf = await r.arrayBuffer()
+  const total = +r.headers.get('content-length') || 0
+  const reader = r.body.getReader()
+  const chunks = []
+  let received = 0
+  while (true) {
+    const { done, value } = await reader.read()
+    if (done) break
+    chunks.push(value)
+    received += value.length
+    if (total) onProgress?.(Math.round((received / total) * 100))
+  }
+  const bytes = new Uint8Array(received)
+  let off = 0
+  for (const c of chunks) { bytes.set(c, off); off += c.length }
+  const buf = bytes.buffer
   setCached(url, buf)
-  return buf
+  return { buf, source: 'network' }
 }
 
 /**
- * 抠图：返回透明背景 PNG Blob。失败抛异常，调用方回退为原图。
+ * 抠图：返回透明背景 PNG Blob。失败抛异常，调用方处理。
+ * 回调 onProgress({stage})：download（首次下载模型，带 percent 0~100）/ image（开始处理图片）/ done（完成）。
+ * 模型有缓存时直接读 IndexedDB（不报 download 阶段），无缓存才下载并缓存。
+ * 该库无内建进度回调，处理图片阶段由调用方模拟进度。
  * @param {File} file 原图
- * @param {(p:number)=>void} onProgress 0~100 进度
+ * @param {(e:{stage:string,percent?:number})=>void} onProgress
  */
 export async function cutout(file, onProgress) {
-  onProgress?.(20)
-  const model = await loadModel(MODEL_URL)
-  onProgress?.(50)
+  const { buf, source } = await loadModel(MODEL_URL, p => onProgress?.({ stage: 'download', percent: p }))
+  if (source === 'network') onProgress?.({ stage: 'download', percent: 100 }) // 下载完成
+  onProgress?.({ stage: 'image' }) // 模型就位，开始抠图
   const blob = await removeBackground(file, {
     model: 'u2netp',              // 预设参数（320×320 / ImageNet 归一化 / minmax 输出）
-    modelUrl: model,              // 模型本体从 IndexedDB / /m/bgrem/ 拿
+    modelUrl: buf,                // 模型本体从 IndexedDB / /m/bgrem/ 拿
     executionProviders: ['wasm'], // 与手机端一致，强制 WASM
     wasmPaths: BGREM_BASE,        // wasm 也从手机端目录加载（结尾带 /）
   })
-  onProgress?.(100)
+  onProgress?.({ stage: 'done' })
   return blob
 }
