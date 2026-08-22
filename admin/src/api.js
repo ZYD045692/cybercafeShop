@@ -1,5 +1,5 @@
 // 管理端 API 封装：一律走本机回环（/api/admin/* 有本机守卫；公开路径生产门禁对本机回环免票）
-export const PORT = window.__LSWSHOP_PORT__ || 21974
+export const PORT = window.__PORT__ || 21974
 export const API = `http://127.0.0.1:${PORT}`
 
 export async function api(path, opts = {}) {

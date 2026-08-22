@@ -244,7 +244,7 @@ pub fn run() {
             let is_autostart = std::env::args().any(|a| a == "--hidden");
             // KEY 注入页面内存：管理端页面签名 /image /qrcode 请求用（密钥不进任何静态文件）
             let key = std::str::from_utf8(cybercafe_shop::auth::ACCESS_KEY).unwrap_or("");
-            let init_js = format!("window.__LSWSHOP_PORT__={port};window.__LSWSHOP_KEY__='{key}';");
+            let init_js = format!("window.__PORT__={port};window.__KEY__='{key}';");
             let _main = tauri::WebviewWindowBuilder::new(app, "main", tauri::WebviewUrl::App("index.html".into()))
                 .title("莱尚网电竞馆 · 点购管理端")
                 .inner_size(1280.0, 800.0)

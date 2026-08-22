@@ -1,12 +1,12 @@
 // 用户端 API：生产模式页面由管理端主机托管（同源），dev 模式走 vite（用壳注入的 host:port）
 import { hmacSha256 } from './hmac'
 
-export const MACHINE = window.__LSWSHOP_MACHINE__ || 'unknown'
-const KEY = window.__LSWSHOP_KEY__ || ''
-const OFFSET = Number(window.__LSWSHOP_OFFSET__ || 0) // 服务器时间偏移（秒），客户机时钟不准也能签名
+export const MACHINE = window.__MACHINE__ || 'unknown'
+const KEY = window.__KEY__ || ''
+const OFFSET = Number(window.__OFFSET__ || 0) // 服务器时间偏移（秒），客户机时钟不准也能签名
 
 // 页面内嵌 exe（tauri 协议，origin 不是 http），API 一律走壳注入的管理端地址
-export const BASE = `http://${window.__LSWSHOP_HOST__ || '127.0.0.1'}:${window.__LSWSHOP_PORT__ || 21974}`
+export const BASE = `http://${window.__HOST__ || '127.0.0.1'}:${window.__PORT__ || 21974}`
 
 // 时间票：ts = 服务器时间，sig = HMAC(密钥, ts)。60 秒缓存复用，服务端窗口 ±300 秒。
 let cached = { ts: 0, sig: '' }
@@ -20,7 +20,7 @@ export function ticket() {
 
 const authHeaders = () => {
   const t = ticket()
-  return { 'x-lsw-ts': String(t.ts), 'x-lsw-sig': t.sig }
+  return { 'x-ts': String(t.ts), 'x-sig': t.sig }
 }
 
 // 图片/收款码等 <img> 标签带不了 header，用 query 票据

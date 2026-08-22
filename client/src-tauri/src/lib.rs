@@ -63,7 +63,7 @@ fn ping_server(host: &str, port: u16) -> Option<i64> {
     s.set_read_timeout(Some(Duration::from_secs(3))).ok()?;
     s.set_write_timeout(Some(Duration::from_secs(3))).ok()?;
     let req = format!(
-        "GET /api/ping HTTP/1.1\r\nHost: {host}\r\nx-lsw-ts: {ts}\r\nx-lsw-sig: {sig}\r\nConnection: close\r\n\r\n"
+        "GET /api/ping HTTP/1.1\r\nHost: {host}\r\nx-ts: {ts}\r\nx-sig: {sig}\r\nConnection: close\r\n\r\n"
     );
     s.write_all(req.as_bytes()).ok()?;
     let mut buf = Vec::new();
@@ -161,7 +161,7 @@ pub fn run() {
             let esc = |s: &str| s.replace('\\', "\\\\").replace('\'', "\\'");
             // KEY/OFFSET 注入页面内存：页面 JS 给后续 API/图片请求签名用（密钥不进任何静态文件）
             let init_js = format!(
-                "window.__LSWSHOP_HOST__='{}';window.__LSWSHOP_PORT__={};window.__LSWSHOP_MACHINE__='{}';window.__LSWSHOP_KEY__='{}';window.__LSWSHOP_OFFSET__={};",
+                "window.__HOST__='{}';window.__PORT__={};window.__MACHINE__='{}';window.__KEY__='{}';window.__OFFSET__={};",
                 esc(&host),
                 port,
                 esc(&machine),

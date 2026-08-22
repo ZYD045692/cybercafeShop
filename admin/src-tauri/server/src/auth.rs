@@ -69,12 +69,12 @@ pub enum AuthMode {
 
 use crate::server::AppState;
 
-/// 请求中提取 (ts, sig)：优先 header（x-lsw-ts / x-lsw-sig），退回 query（图片等 <img> 场景）。
+/// 请求中提取 (ts, sig)：优先 header（x-ts / x-sig），退回 query（图片等 <img> 场景）。
 fn extract_ticket(req: &Request<Body>) -> Option<(i64, String)> {
     let h = req.headers();
     let from_header = || {
-        let ts = h.get("x-lsw-ts")?.to_str().ok()?.parse::<i64>().ok()?;
-        let sig = h.get("x-lsw-sig")?.to_str().ok()?.to_string();
+        let ts = h.get("x-ts")?.to_str().ok()?.parse::<i64>().ok()?;
+        let sig = h.get("x-sig")?.to_str().ok()?.to_string();
         Some((ts, sig))
     };
     if let Some(v) = from_header() {

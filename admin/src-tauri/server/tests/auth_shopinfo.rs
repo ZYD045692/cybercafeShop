@@ -94,8 +94,8 @@ fn ticket() -> (String, String) {
 fn get_signed(port: u16, path: &str) -> (u16, String) {
     let (ts, sig) = ticket();
     let r = ureq::get(&format!("http://127.0.0.1:{port}{path}"))
-        .set("x-lsw-ts", &ts)
-        .set("x-lsw-sig", &sig)
+        .set("x-ts", &ts)
+        .set("x-sig", &sig)
         .call();
     match r {
         Ok(resp) => (resp.status(), resp.into_string().unwrap_or_default()),
@@ -188,8 +188,8 @@ fn t45_shopinfo_defaults_and_update() {
     let (ts, sig) = ticket();
     let r = ureq::post(&format!("http://127.0.0.1:{}/api/admin/shopinfo", env.port))
         .set("Content-Type", "application/json")
-        .set("x-lsw-ts", &ts)
-        .set("x-lsw-sig", &sig)
+        .set("x-ts", &ts)
+        .set("x-sig", &sig)
         .send_string(&json!({"shop_name":"测试网咖","welcome":"hello"}).to_string())
         .unwrap();
     assert_eq!(r.status(), 200);

@@ -23,7 +23,7 @@ node scripts/bump-version.js 0.2.0  # 一键改版本号（同步 package.json/t
 # vite 已配置 watch: ignored ['**/src-tauri/target/**']，不要手动改动这条。
 ```
 
-注意：`npm test` 只针对服务端 crate（`--manifest-path admin/src-tauri/server/Cargo.toml`），前端、Tauri 壳、GUI（托盘/通知卡片/穿透/警告框）没有自动化测试，后者靠 Windows 真机人工验证。测试全部用 `tempfile` 临时目录 + `LSWSHOP_DATA_DIR` 隔离，绝不碰生产/开发数据。
+注意：`npm test` 只针对服务端 crate（`--manifest-path admin/src-tauri/server/Cargo.toml`），前端、Tauri 壳、GUI（托盘/通知卡片/穿透/警告框）没有自动化测试，后者靠 Windows 真机人工验证。测试全部用 `tempfile` 临时目录 + `DATA_DIR` 隔离，绝不碰生产/开发数据。
 
 **测试分布（共 45 项，`cargo test` 一次跑完，所有测试都要通过再交）**：
 - `server/tests/api_adversarial.rs`（29 项）：非法机台名/支付方式/数量、篡改价格、下架商品下单、路径穿越文件名、超大请求体、非本机调管理 API、并发下单销量一致性等对抗性用例。
@@ -37,7 +37,7 @@ node scripts/bump-version.js 0.2.0  # 一键改版本号（同步 package.json/t
 - **页面地址分岔**：管理端 dev 走 `http://localhost:14201`（vite 热重载），用户端 dev 走 `http://localhost:14202`（vite 热重载），都基于 `cfg!(debug_assertions)`；生产两端各自切换成内嵌协议（`WebviewUrl::App`）。改 `tauri.conf.json` 的 `beforeDevCommand`/`devUrl` 前先确认这层映射。
 - **两端 dev 数据目录都是项目根 `dev-data/`**（`admin/src-tauri/src/lib.rs::data_dir` 和 `client/src-tauri/src/lib.rs` 里 `CARGO_MANIFEST_DIR` 相对路径）。`dev-admin.bat` 会先跑 `scripts/seed-dev-data.js`（幂等：`dev-data/` 已存在则跳过）生成测试商品库 + 音频/收款码 + 一份两端共用的 `config.ini`。
 - **dev 模式门禁关闭**（`AuthMode::Off`），浏览器可直接裸访问调试。dev 的服务端（管理端）由管理端壳内嵌启动；`.bat` 或直接 `vite` 跑前端即可。
-- **想裸跑服务端（无 GUI）调试 API**：`cargo run -p cybercafeShop-server`（`server/src/main.rs` 入口，读取 `LSWSHOP_DATA_DIR` 或 exe 目录下的 config.ini，默认端口 21974）。
+- **想裸跑服务端（无 GUI）调试 API**：`cargo run -p cybercafeShop-server`（`server/src/main.rs` 入口，读取 `DATA_DIR` 或 exe 目录下的 config.ini，默认端口 21974）。
 
 ## 架构
 
@@ -88,7 +88,7 @@ admin/src-tauri/server/src/
 ├─ db.rs        SQLite 数据层 + 下单事务 + 缩拼生成/回填
 ├─ auth.rs      HMAC-SHA256 时间票门禁（ACCESS_KEY、verify、AuthMode）
 ├─ announce.rs  语音播报（FIFO 队列 + 30s 呼叫去重，纯函数 build_playlist 可单测）
-└─ config.rs    config.ini 解析 + AppDirs 目录约定（LSWSHOP_DATA_DIR）
+└─ config.rs    config.ini 解析 + AppDirs 目录约定（DATA_DIR）
 ```
 
 关键：`server.rs` 里的 `router()` 是理解整条 HTTP 链路的钥匙 —— 它用 `.layer(require_ticket)` 包住公开接口，再 merge 管理端 `admin_router`（自带 `localhost_only` 守卫），最后加 `.layer(CorsLayer::permissive())`（dev 的 vite/Tauri 协议要跨源调 API）。`build_state_with(dirs, auth_mode)` 决定门禁开不开。用户端网页已内嵌用户端 exe，不再有 `/shop/` 托管。
@@ -97,14 +97,14 @@ admin/src-tauri/server/src/
 
 - **管理端页面**：内嵌 exe，端口上没有 → 浏览器打不开。
 - **管理端 API**：只接受 `127.0.0.1`（`admin::localhost_only`，靠 `into_make_service_with_connect_info` 提供的 ConnectInfo）。客户机调了也 403。
-- **公开资源**：HMAC-SHA256 时间票门禁。签名 = `HMAC(密钥, 时间戳)`，±300 秒有效。API 走 header（`x-lsw-ts`/`x-lsw-sig`），`<img>` 带不了 header 走 query（`?ts=&sig=`）。`/api/ping` 是唯一**不加密**接口（只返回服务器时间做对时）。
+- **公开资源**：HMAC-SHA256 时间票门禁。签名 = `HMAC(密钥, 时间戳)`，±300 秒有效。API 走 header（`x-ts`/`x-sig`），`<img>` 带不了 header 走 query（`?ts=&sig=`）。`/api/ping` 是唯一**不加密**接口（只返回服务器时间做对时）。
 
 **密钥只编译在 exe 里，绝不下发到任何静态文件**。它拷贝了两处 + 一处运行时注入：
 1. `admin/src-tauri/server/src/auth.rs` 的 `ACCESS_KEY`
 2. `client/src-tauri/src/lib.rs` 的 `ACCESS_KEY`
-3. 两端壳都通过 `initialization_script` 把 key/host/port/machine/offset 注入页面内存（`window.__LSWSHOP_KEY__` 等），前端 JS 从这里取来签名。
+3. 两端壳都通过 `initialization_script` 把 key/host/port/machine/offset 注入页面内存（`window.__KEY__` 等），前端 JS 从这里取来签名。
 
-**【换密钥必须三处一起改，重新编译两端】**：改 auth.rs、client/src-tauri lib.rs 的常量，否则两端验签对不上。时钟对时：客户端启动用 `/api/ping` 算 `offset`，注入 `window.__LSWSHOP_OFFSET__`，签名用「服务器时间」而非本地时间，时钟错乱也能用。
+**【换密钥必须三处一起改，重新编译两端】**：改 auth.rs、client/src-tauri lib.rs 的常量，否则两端验签对不上。时钟对时：客户端启动用 `/api/ping` 算 `offset`，注入 `window.__OFFSET__`，签名用「服务器时间」而非本地时间，时钟错乱也能用。
 
 门禁模式（`AuthMode`）：`Off`（debug 构建，方便 vite 调试）、`Ticket`（测试严格模式）、`TicketOrLocalhost`（生产：本机免票、外网卡验票）。dev 与生产由 `cfg!(debug_assertions)` 自动切换，不要手工写死。
 
@@ -143,7 +143,7 @@ admin/src-tauri/server/src/
 - **Element Plus 程序化 API（`ElMessage`/`ElMessageBox`）禁止手动 import**，否则丢样式。本项目用 `unplugin-auto-import` + `unplugin-vue-components` 按需加载（参考 Landisk）。手动 import 是常见踩坑点。
 - **Client 的 vite `base: './'` 必须保留**：生产网页内嵌 exe（tauri 协议），相对路径保证资源正确加载；改回 `/` 会让页面去请求 `/assets/*` → 404 白屏。
 - **两端 dev 都读写项目根 `dev-data/`**（debug 断言），与生产完全隔离，只动这一个目录即可联调。想真机联测改 `dev-data/config.ini` 的 `host` 为吧台机 IP。测试数据乱了删掉 `dev-data/` 重新 `node scripts/seed-dev-data.js`。
-- **`LSWSHOP_DATA_DIR` 环境变量**可覆盖数据根目录（测试隔离用）；生产默认 = exe 所在目录。
+- **`DATA_DIR` 环境变量**可覆盖数据根目录（测试隔离用）；生产默认 = exe 所在目录。
 - **dev 与生产门禁、数据目录都在两份 config.ini 里**：管理端只读 `[server] port`；用户端读 `host`/`port`/`contact`（连不上吧台时警告框显示）。生产 config.ini 由首启播种写默认（无 host/contact，那两行属用户端）。
 - **管理端首启播种（仅生产，`seed_if_missing`）**：安装包带 `seed/`（空库 + 音频 + 收款码占位，**不含商品**），数据目录缺什么补什么；`data/image`（商品图）首启为空，靠部署时灌「商品数据包」覆盖。
 - **打包链**（`scripts/pack.js`）：tauri build 管理端（NSIS 内嵌管理端 exe+网页+seed）→ tauri build 用户端（网页内嵌 exe）→ 组装 `dist/`。

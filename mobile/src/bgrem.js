@@ -14,7 +14,7 @@ const MODEL_URL = BGREM_BASE + 'u2netp.onnx'
 
 // IndexedDB：把下载到的模型存起来，下次直接读内存，彻底离线、免重复请求。
 // 键 = 模型 URL，值 = ArrayBuffer（onnxruntime 支持从内存加载模型）。
-const DB_NAME = 'lswshop-bgrem'
+const DB_NAME = 'bgrem'
 const STORE = 'models'
 
 function openDb() {

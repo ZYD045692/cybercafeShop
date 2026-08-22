@@ -10,7 +10,7 @@
 //!   data/qrcode/         wechat.png / alipay.png
 //!   web/m/               手机端添加商品页面（HTTP 托管，仅手机用）
 //!
-//! 生产/测试隔离：数据根目录可用环境变量 LSWSHOP_DATA_DIR 覆盖，
+//! 生产/测试隔离：数据根目录可用环境变量 DATA_DIR 覆盖，
 //! 测试把根目录指到临时目录即可，互不干扰（参考 Landisk 的 LANDISK_DATA_DIR）。
 
 use std::path::{Path, PathBuf};
@@ -64,7 +64,7 @@ pub fn ini_get<'a>(text: &'a str, section: &str, key: &str) -> Option<&'a str> {
     None
 }
 
-/// 数据根目录：优先环境变量 LSWSHOP_DATA_DIR（测试用），否则取 exe 所在目录。
+/// 数据根目录：优先环境变量 DATA_DIR（测试用），否则取 exe 所在目录。
 #[derive(Debug, Clone)]
 pub struct AppDirs {
     pub base: PathBuf,
@@ -72,7 +72,7 @@ pub struct AppDirs {
 
 impl AppDirs {
     pub fn from_env() -> AppDirs {
-        let base = std::env::var("LSWSHOP_DATA_DIR")
+        let base = std::env::var("DATA_DIR")
             .map(PathBuf::from)
             .unwrap_or_else(|_| {
                 std::env::current_exe()
