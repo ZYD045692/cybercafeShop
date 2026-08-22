@@ -220,10 +220,10 @@ sequenceDiagram
     participant DB as SQLite
 
     P->>S: GET /m/（管理端托管静态页，含 u2netp 模型+onnxruntime wasm）
-    P->>P: 选图 → 本地抠图（去背景）→ 旋转/缩放 → 合成 300×300 白底 JPEG
-    P->>S: POST /api/m/image/{name}（上传图片，魔数校验 ≤3MB）
-    P->>S: POST /api/m/product（新增商品，字段校验 + 自动生成缩拼）
+    P->>P: 拍照/选图 → 本地抠图（去背景）→ 旋转/缩放 → 合成 300×300 白底 JPEG
+    P->>S: POST /api/m/product（新增商品，字段校验）
     S->>DB: 新增到 shop_list（缩拼冲突自动追加后缀，如 whh → whh_1）
+    P->>S: POST /api/m/product/{id}/image（传图：服务端按最终缩拼命名并回填 pic）
 ```
 
 - **页面**：独立 `mobile/` Vue 工程，构建产物由管理端 HTTP 服务托管在 `/m/`。手机页不含删除/改名/订单/销售/店铺配置，只做新增商品 + 传图，收窄攻击面。
@@ -269,7 +269,7 @@ sequenceDiagram
 |---|---|---|
 | GET | `/api/m/categories` | 分类列表（复用 `db.categories()`） |
 | POST | `/api/m/product` | 新增商品（复用 `ProductIn` 字段校验，缩拼冲突自动加后缀 `_1`） |
-| POST | `/api/m/image/{name}` | 上传商品图片（≤3MB，JPG/PNG 魔数校验，文件名白名单） |
+| POST | `/api/m/product/{id}/image` | 给已建商品传图（≤3MB，JPG/PNG 魔数校验；文件名按商品最终缩拼生成并回填 pic） |
 
 静态托管：`GET /m/` → `web/m/` 目录（`tower-http::ServeDir`），即手机添加商品页。手机端**不暴露**删除/改名/订单/销售/店铺配置。
 

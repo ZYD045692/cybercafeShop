@@ -24,8 +24,9 @@ export function addProduct(payload) {
   })
 }
 
-export async function uploadImage(name, blob) {
-  const r = await fetch(`${BASE}/api/m/image/${encodeURIComponent(name)}`, {
+// 商品建好后传图：文件名由服务端按最终缩拼生成，前端不指定（避免缩拼冲突时互覆图片）
+export async function uploadProductImage(id, blob) {
+  const r = await fetch(`${BASE}/api/m/product/${id}/image`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/octet-stream' },
     body: blob,

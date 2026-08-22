@@ -1,7 +1,7 @@
 //! 手机端 API（/api/m/*）：吧台人员用手机浏览器添加商品。
 //!
 //! 不做口令鉴权：页面地址 /m/ 不对外宣传，网吧顾客一般接触不到（局域网自用，风险可接受）。
-//! 注意：`/api/m/product`、`/api/m/image/{name}` 是局域网内裸写的，懂行的人可用脚本直接调；
+//! 注意：`/api/m/product`、`/api/m/product/{id}/image` 是局域网内裸写的，懂行的人可用脚本直接调；
 //! 想加口令时把 login + require_m_token 加回来即可（本文件早期版本有完整实现）。
 //!
 //! 复用现有 db 逻辑与图片魔数校验，管理端本机接口（/api/admin/*）不受影响。
@@ -79,25 +79,45 @@ async fn add_product(
     }
 }
 
-async fn upload_image(
-    State(ctx): State<Arc<MobileCtx>>,
-    Path(name): Path<String>,
-    body: Bytes,
-) -> (StatusCode, Json<Value>) {
-    if !crate::server::valid_filename(&name) {
-        return err(StatusCode::BAD_REQUEST, "文件名非法");
-    }
+/// 图片字节校验：非空、≤3MB、JPG/PNG 魔数
+fn check_image(body: &Bytes) -> Result<(), &'static str> {
     if body.is_empty() || body.len() > 3 * 1024 * 1024 {
-        return err(StatusCode::BAD_REQUEST, "图片大小非法");
+        return Err("图片大小非法");
     }
     let is_jpg = body.starts_with(&[0xFF, 0xD8, 0xFF]);
     let is_png = body.starts_with(&[0x89, 0x50, 0x4E, 0x47]);
     if !is_jpg && !is_png {
-        return err(StatusCode::BAD_REQUEST, "只接受 JPG/PNG 图片");
+        return Err("只接受 JPG/PNG 图片");
     }
-    match std::fs::write(ctx.image_dir.join(&name), &body) {
-        Ok(()) => (StatusCode::OK, Json(json!({"ok": true}))),
-        Err(e) => err(StatusCode::INTERNAL_SERVER_ERROR, &e.to_string()),
+    Ok(())
+}
+
+/// 手机端保存流程的第 2 步：商品已建好（拿到 id），再传图。
+/// 图片文件名服务端自己取（该商品的最终缩拼.jpg），前端说了不算——
+/// 缩拼在建商品时已做唯一化（whh → whh_1），图随缩拼走，不会覆盖别的商品的图。
+async fn upload_product_image(
+    State(ctx): State<Arc<MobileCtx>>,
+    Path(id): Path<i64>,
+    body: Bytes,
+) -> (StatusCode, Json<Value>) {
+    if let Err(e) = check_image(&body) {
+        return err(StatusCode::BAD_REQUEST, e);
+    }
+    let abbr = match ctx.db.product_abbr(id) {
+        Ok(a) if !a.is_empty() => a,
+        Ok(_) => return err(StatusCode::BAD_REQUEST, "商品缩拼为空，无法命名图片"),
+        Err(e) => return err(StatusCode::BAD_REQUEST, &e),
+    };
+    let name = format!("{abbr}.jpg");
+    if !crate::server::valid_filename(&name) {
+        return err(StatusCode::INTERNAL_SERVER_ERROR, "缩拼生成文件名非法");
+    }
+    if let Err(e) = std::fs::write(ctx.image_dir.join(&name), &body) {
+        return err(StatusCode::INTERNAL_SERVER_ERROR, &e.to_string());
+    }
+    match ctx.db.set_product_pic(id, &name) {
+        Ok(()) => (StatusCode::OK, Json(json!({"ok": true, "pic": name}))),
+        Err(e) => err(StatusCode::INTERNAL_SERVER_ERROR, &e),
     }
 }
 
@@ -109,7 +129,7 @@ pub fn mobile_router(ctx: Arc<MobileCtx>) -> Router {
     Router::new()
         .route("/api/m/categories", axum::routing::get(categories))
         .route("/api/m/product", axum::routing::post(add_product))
-        .route("/api/m/image/{name}", axum::routing::post(upload_image))
+        .route("/api/m/product/{id}/image", axum::routing::post(upload_product_image))
         .layer(axum::extract::DefaultBodyLimit::max(3 * 1024 * 1024))
         .with_state(ctx)
 }

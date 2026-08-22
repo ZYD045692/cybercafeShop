@@ -9,18 +9,31 @@ import { ElementPlusResolver } from 'unplugin-vue-components/resolvers'
 export default defineConfig({
   base: './',
   resolve: {
-    alias: {
+    alias: [
       // rmbg-webgpu 源码写死 import "onnxruntime-web/webgpu"，但我们强制 WASM（局域网 HTTP 用不了 WebGPU），
-      // 且 webgpu 入口会让 vite 打包进 24MB 的 asyncify wasm 冗余。把 webgpu 子路径重定向到纯 wasm 入口，
-      // onnxruntime 只保留运行时真正需要的 ort-wasm-simd-threaded.wasm（我们托管在 /m/bgrem/）。
-      // 用 $ 前缀按完整导入串精确匹配（不误伤其他 onnxruntime-web/* 子路径）。
-      'onnxruntime-web/webgpu$': 'onnxruntime-web/wasm'
-    }
+      // 且 webgpu 入口运行时加载的是 asyncify 版 wasm（24MB 冗余）。把 webgpu 子路径重定向到纯 wasm 入口，
+      // onnxruntime 只保留运行时真正需要的 ort-wasm-simd-threaded.wasm（托管在 /m/bgrem/）。
+      // 注意：Vite 的 alias 不支持 webpack 的 "$" 精确匹配后缀，字符串键只按精确/前缀匹配，
+      // "xxx$" 这种键永远匹配不到 → 必须用正则 find。
+      { find: /^onnxruntime-web\/webgpu$/, replacement: 'onnxruntime-web/wasm' }
+    ]
   },
   plugins: [
     vue(),
     AutoImport({ resolvers: [ElementPlusResolver()] }),
-    Components({ resolvers: [ElementPlusResolver()] })
+    Components({ resolvers: [ElementPlusResolver()] }),
+    // 剔除被 vite 当资产打包进 dist/assets 的 onnxruntime wasm（ort-wasm-*.wasm）。
+    // 运行时 wasm 统一由 wasmPaths 指向 /m/bgrem/ 加载（public/bgrem 里已有一份），
+    // 再打包一份纯属重复死重（13~24MB）。
+    {
+      name: 'strip-ort-wasm-assets',
+      apply: 'build',
+      generateBundle(_, bundle) {
+        for (const k of Object.keys(bundle)) {
+          if (/ort-wasm.*\.wasm$/.test(k)) delete bundle[k]
+        }
+      }
+    }
   ],
   clearScreen: false,
   server: {

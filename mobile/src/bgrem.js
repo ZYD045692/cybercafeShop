@@ -4,10 +4,13 @@
 
 import { removeBackground } from '@planby-tech/rmbg-webgpu'
 
-// 模型与 onnxruntime wasm 资源位于 ./bgrem/（构建时拷进 mobile/public/bgrem）
-const BASE = import.meta.env.BASE_URL + 'bgrem'
-// 模型 URL：相对当前页(/m/)解析为 /m/bgrem/u2netp.onnx。改这里即换模型，无需改缓存键逻辑
-const MODEL_URL = './bgrem/u2netp.onnx'
+// 模型与 onnxruntime wasm 资源位于页面同级的 bgrem/ 目录（构建时拷进 mobile/public/bgrem）。
+// 必须基于 location.href 解析成绝对 URL 且带结尾斜杠：
+// onnxruntime 对 wasmPaths 只做字符串拼接（不补 /），且相对路径会按「当前 JS 模块的 URL」
+// （/m/assets/index-*.js）而不是页面 URL 解析 → 相对写法会拼出 /m/assets/bgremort-xxx 这种 404。
+const BGREM_BASE = new URL('bgrem/', location.href).href
+// 模型 URL：/m/bgrem/u2netp.onnx。改这里即换模型，无需改缓存键逻辑
+const MODEL_URL = BGREM_BASE + 'u2netp.onnx'
 
 // IndexedDB：把下载到的模型存起来，下次直接读内存，彻底离线、免重复请求。
 // 键 = 模型 URL，值 = ArrayBuffer（onnxruntime 支持从内存加载模型）。
@@ -79,7 +82,7 @@ export async function cutout(file, onProgress) {
     model: 'u2netp',
     modelUrl: model,           // 直接喂内存里的模型，离线可用
     executionProviders: ['wasm'], // 强制 CPU/WASM，局域网 HTTP 下 WebGPU 不可用
-    wasmPaths: BASE,           // onnxruntime wasm（ort-wasm-simd-threaded.*）所在目录
+    wasmPaths: BGREM_BASE,     // onnxruntime wasm（ort-wasm-simd-threaded.*）所在目录，结尾带 /
   })
   onProgress?.(100)
   return blob

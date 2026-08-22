@@ -6,10 +6,20 @@
         <button class="close" @click="emit('cancel')">✕</button>
       </header>
 
-      <!-- 未选图：先选 -->
-      <div v-if="!sourceImg" class="stage empty" @click="fileInput.click()">
+      <!-- 未选图：拍照 或 从相册选择 -->
+      <div v-if="!sourceImg" class="stage empty">
+        <!-- capture="environment"：手机浏览器直接调起后置摄像头；不带 capture 的走相册/文件 -->
+        <input ref="cameraInput" type="file" accept="image/*" capture="environment" style="display:none" @change="onFile">
         <input ref="fileInput" type="file" accept="image/*" style="display:none" @change="onFile">
-        <span>点击选择图片</span>
+        <div class="pick-btns">
+          <button class="pick" @click="cameraInput.click()">
+            <span class="ico">📷</span>拍照
+          </button>
+          <button class="pick" @click="fileInput.click()">
+            <span class="ico">🖼</span>从相册选择
+          </button>
+        </div>
+        <p class="tip">建议把商品放在干净背景上拍摄，抠图效果更好</p>
       </div>
 
       <!-- 已选图：抠图进度 / 编辑预览 -->
@@ -55,6 +65,7 @@ const rotateDeg = ref(0)      // 0/90/180/270
 const flipX = ref(false)
 const scale = ref(1)
 const fileInput = ref(null)
+const cameraInput = ref(null)
 const rawFile = ref(null)
 
 async function onFile(e) {
@@ -128,7 +139,12 @@ header { display: flex; align-items: center; justify-content: space-between; pad
 header .t { font-size: 16px; font-weight: bold; }
 .close { border: none; background: none; font-size: 16px; color: #909399; cursor: pointer; }
 .stage { padding: 16px; min-height: 200px; display: flex; align-items: center; justify-content: center; }
-.stage.empty { cursor: pointer; color: #909399; font-size: 15px; }
+.stage.empty { flex-direction: column; gap: 14px; }
+.pick-btns { display: flex; gap: 12px; width: 100%; }
+.pick { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 20px 0; border: 1px dashed #c0c4cc; border-radius: 10px; background: #fafafa; font-size: 14px; color: #606266; cursor: pointer; }
+.pick:active { background: #ecf5ff; border-color: #409eff; color: #409eff; }
+.pick .ico { font-size: 26px; }
+.tip { margin: 0; font-size: 12px; color: #a8abb2; }
 .preview { display: flex; align-items: center; justify-content: center; }
 .pimg { max-width: 100%; max-height: 340px; object-fit: contain; background: repeating-conic-gradient(#eee 0% 25%, #fff 0% 50%) 50% / 16px 16px; }
 .cutting { text-align: center; color: #606266; }

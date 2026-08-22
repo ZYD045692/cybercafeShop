@@ -94,7 +94,22 @@ impl Db {
                qty INTEGER NOT NULL
              );
              CREATE INDEX IF NOT EXISTS idx_orders_time ON orders(created_at);
-             CREATE INDEX IF NOT EXISTS idx_items_order ON order_items(order_id);",
+             CREATE INDEX IF NOT EXISTS idx_items_order ON order_items(order_id);
+             -- 商品/分类表结构与种子库一致（IF NOT EXISTS：有种子库时是空操作；
+             -- 没有种子库的全新环境也不至于缺表 500，只是分类/商品为空）
+             CREATE TABLE IF NOT EXISTS shop_fl (
+               id INTEGER PRIMARY KEY AUTOINCREMENT,
+               class_name TEXT, class_px INTEGER, class_ext_1 TEXT
+             );
+             CREATE TABLE IF NOT EXISTS shop_list (
+               id INTEGER PRIMARY KEY AUTOINCREMENT,
+               gds_number TEXT, gds_class TEXT, gds_name TEXT,
+               gds_bt_count INTEGER, gds_ck_count INTEGER,
+               gds_jhj INTEGER, gds_xsj INTEGER, gds_gys TEXT,
+               gds_pic TEXT, gds_px INTEGER, gds_state INTEGER,
+               gds_out INTEGER, gds_js TEXT,
+               gds_ext_1 TEXT, gds_ext_2 TEXT, gds_ext_3 TEXT
+             );",
         )
         .map_err(|e| format!("初始化订单表失败: {e}"))?;
 
@@ -391,6 +406,32 @@ impl Db {
                 Ok(conn.last_insert_rowid())
             }
         }
+    }
+
+    /// 按 id 取商品最终缩拼（手机端：建商品后用它命名图片，保证图随缩拼唯一）
+    pub fn product_abbr(&self, id: i64) -> Result<String, String> {
+        let conn = self.conn.lock().unwrap();
+        conn.query_row(
+            "SELECT gds_number FROM shop_list WHERE id=?1",
+            params![id],
+            |r| r.get(0),
+        )
+        .map_err(|_| "商品不存在".to_string())
+    }
+
+    /// 回填商品图片文件名（手机端：图片在商品建好后才上传）
+    pub fn set_product_pic(&self, id: i64, pic: &str) -> Result<(), String> {
+        let conn = self.conn.lock().unwrap();
+        let n = conn
+            .execute(
+                "UPDATE shop_list SET gds_pic=?2 WHERE id=?1",
+                params![id, pic],
+            )
+            .map_err(|e| e.to_string())?;
+        if n == 0 {
+            return Err("商品不存在".into());
+        }
+        Ok(())
     }
 
     pub fn set_product_state(&self, id: i64, state: i64) -> Result<(), String> {

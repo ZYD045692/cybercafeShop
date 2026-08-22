@@ -45,7 +45,7 @@
 
 <script setup>
 import { ref, onMounted } from 'vue'
-import { getCategories, addProduct, uploadImage } from '../api'
+import { getCategories, addProduct, uploadProductImage } from '../api'
 import { genAbbr } from '../pinyin'
 import ImageEditor from '../components/ImageEditor.vue'
 
@@ -76,20 +76,17 @@ async function save() {
 
   saving.value = true
   try {
-    let pic = ''
-    if (picBlob.value) {
-      const fname = (abbr.value || 'p' + Date.now()) + '.jpg'
-      await uploadImage(fname, picBlob.value)
-      pic = fname
-    }
-    await addProduct({
+    // 顺序：先建商品（服务端会唯一化缩拼），再按商品 id 传图，
+    // 图片文件名由服务端按最终缩拼生成——缩拼冲突时不会覆盖已有商品的图
+    const { id } = await addProduct({
       name: name.value.trim(),
       class: cat.value,
       abbr: abbr.value,
       jhj: jhj.value,
       price: price.value,
-      pic,
+      pic: '',
     })
+    if (picBlob.value) await uploadProductImage(id, picBlob.value)
     // 成功：清空表单，方便连续添加
     name.value = ''; abbr.value = ''; cat.value = ''
     jhj.value = 0; price.value = 0
