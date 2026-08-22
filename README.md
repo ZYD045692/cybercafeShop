@@ -15,7 +15,7 @@
 | 桌面壳 | Tauri 2（Rust） | 单实例、托盘、无边框透明通知窗、开机自启 |
 | 前端 | Vue 3 + Vite 5 + Element Plus | Element Plus 按需加载（unplugin-auto-import / unplugin-vue-components） |
 | 服务端 | axum 0.8 + tokio（独立 Rust lib crate `cybercafeShop`） | 内嵌在管理端进程里，监听局域网，提供业务 API |
-| 手机端 | Vue 3 + Vite 5 + Element Plus + U²-Netp 抠图（onnxruntime-web WASM） | 独立 `mobile/` workspace，页面由管理端 HTTP 托管在 `/m/` |
+| 手机端 | Vue 3 + Vite 5 + Element Plus + silueta 抠图（onnxruntime-web WASM） | 独立 `mobile/` workspace，页面由管理端 HTTP 托管在 `/m/` |
 | 数据库 | SQLite（rusqlite 0.32 bundled） | 商品/分类/订单/店铺配置 |
 | 语音 | winmm `PlaySoundW`（SND_SYNC） | wav 音频，FIFO 队列逐条播完 |
 | 目标平台 | Windows 10+（需系统 WebView2 Runtime，Win11 必带，Win10 装过 Edge/Office 即自带） | 内存占用约 40MB |
@@ -219,7 +219,7 @@ sequenceDiagram
     participant IMG as 浏览器本地抠图（WASM）
     participant DB as SQLite
 
-    P->>S: GET /m/（管理端托管静态页，含 u2netp 模型+onnxruntime wasm）
+    P->>S: GET /m/（管理端托管静态页，含 silueta 模型+onnxruntime wasm）
     P->>P: 拍照/选图 → 本地抠图（去背景）→ 旋转/缩放 → 合成 300×300 白底 JPEG
     P->>S: POST /api/m/product（新增商品，字段校验）
     S->>DB: 新增到 shop_list（缩拼冲突自动追加后缀，如 whh → whh_1）
@@ -227,7 +227,7 @@ sequenceDiagram
 ```
 
 - **页面**：独立 `mobile/` Vue 工程，构建产物由管理端 HTTP 服务托管在 `/m/`。手机页不含删除/改名/订单/销售/店铺配置，只做新增商品 + 传图，收窄攻击面。
-- **抠图**：浏览器本地 U²-Netp 模型（`isnet_quint8` 之外的最小档），模型 ~4MB + onnxruntime wasm，由吧台机离线托管在 `/m/bgrem/`，**不依赖外网**；抠图失败自动回退为原图仅旋转/缩放。
+- **抠图**：浏览器本地 silueta 模型（U²-Net 同架构精简版，边缘质量优于 u2netp），模型 ~44MB + onnxruntime wasm，由吧台机离线托管在 `/m/bgrem/`，**不依赖外网**；抠图失败自动回退为原图仅旋转/缩放。
 - **缩拼冲突唯一化**：同名商品缩拼重复时，后端自动追加 `_1`/`_2`……直到唯一（`whh` → `whh_1`），避免图片文件名互相覆盖。
 
 ---
@@ -388,7 +388,7 @@ CREATE TABLE shop_config (
 │  ├─ image\              商品图片（首启播种为空，商品管理里上传）
 │  ├─ qrcode\             收款码（首启播种，设置页可换）
 │  └─ sound\              播报 wav（首启播种）
-├─ web\m\                 手机端添加商品页面（安装包 seed\web\m 带进来；★ 含 u2netp 模型 + onnxruntime wasm）
+├─ web\m\                 手机端添加商品页面（安装包 seed\web\m 带进来；★ 含 silueta 模型 + onnxruntime wasm）
 
 用户端（绿色软件，不安装，放每台客户机）
 dist\用户端\
