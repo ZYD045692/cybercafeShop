@@ -101,10 +101,10 @@ async function onFile(e) {
   try {
     const blob = await cutout(f, p => { cutProgress.value = p })
     loadImg(URL.createObjectURL(blob))
-  } catch {
-    // 抠图失败回退：直接用原图，仅旋转/缩放
+  } catch (ex) {
+    // 抠图失败回退：直接用原图，仅旋转/缩放；原因直接弹给用户（没人会去看控制台）
     loadImg(URL.createObjectURL(f))
-    ElMessage.warning('抠图失败，已用原图')
+    ElMessage.warning('抠图失败，已用原图：' + (ex?.message || ex))
   }
 }
 
@@ -115,6 +115,11 @@ function loadImg(url) {
     cutting.value = false
     await nextTick()
     render()
+  }
+  // 图片解码失败（文件损坏/HEIC 等非常规格式）：停掉转圈回到选图页，否则会永远卡在"正在抠图"
+  img.onerror = () => {
+    cutting.value = false
+    ElMessage.error('图片读取失败，请换一张试试')
   }
   img.src = url
 }
@@ -162,6 +167,7 @@ function dragEnd() { dragX0 = null }
 function apply() {
   cv.value.toBlob(b => {
     if (b) emit('done', b)
+    else ElMessage.error('图片导出失败，请重试')
   }, 'image/jpeg', 0.9)
 }
 </script>

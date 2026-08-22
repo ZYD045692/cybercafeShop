@@ -86,12 +86,24 @@ async function save() {
       price: price.value,
       pic: '',
     })
-    if (picBlob.value) await uploadProductImage(id, picBlob.value)
-    // 成功：清空表单，方便连续添加
-    name.value = ''; abbr.value = ''; cat.value = ''
+    let imgFailed = null
+    if (picBlob.value) {
+      try {
+        await uploadProductImage(id, picBlob.value)
+      } catch (e) {
+        imgFailed = e.message
+      }
+    }
+    // 商品已建好（即使图片失败）：清空表单，方便连续添加；
+    // 也避免用户因图片报错重复点保存 → 重复建出 xx_1 商品
+    name.value = ''; abbr.value = ''; cat.value = cats.value[0]?.name || ''
     jhj.value = 0; price.value = 0
     picBlob.value = null; picPreview.value = ''
-    ElMessage.success('商品已保存')
+    if (imgFailed) {
+      ElMessage.warning('商品已保存，但图片上传失败：' + imgFailed + '，可在管理端补传')
+    } else {
+      ElMessage.success('商品已保存')
+    }
   } catch (e) {
     err.value = e.message
   } finally {
@@ -104,8 +116,8 @@ onMounted(async () => {
     const d = await getCategories()
     cats.value = d.categories
     if (cats.value.length) cat.value = cats.value[0].name
-  } catch (e) {
-    err.value = e.message
+  } catch {
+    ElMessage.error('无法连接主机。')
   }
 })
 </script>

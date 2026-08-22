@@ -5,7 +5,7 @@
       :style="i === cards.length - 1
         ? { bottom: '0px', zIndex: i + 1, height: cardHeight(c) + 'px' }
         : { top: i * OFFSET + 'px', zIndex: i + 1, height: cardHeight(c) + 'px' }"
-      :class="{ behind: i < cards.length - 1, front: i === cards.length - 1 }"
+      :class="{ behind: i < cards.length - 1, front: i === cards.length - 1, errflash: c.err }"
       @click="bringFront(i)">
       <div class="hd" :class="c.type === 'call' ? 'orange' : 'blue'">
         <span>{{ c.type === 'call' ? '📢 ' + c.machine + ' 呼叫网管' : '🛒 ' + c.machine + ' 下单' }}</span>
@@ -93,7 +93,14 @@ function bringFront(i) {
 
 async function ship(c) {
   if (c.type === 'order') {
-    await post(`/api/order/${c.id}/status`, { status: 1 })
+    try {
+      await post(`/api/order/${c.id}/status`, { status: 1 })
+    } catch {
+      // 出货失败：卡片红框闪烁提醒，留在原地（服务端状态没变，绝不能假装已出货）
+      c.err = true
+      setTimeout(() => { c.err = false }, 1500)
+      return
+    }
   }
   cards.value = cards.value.filter(x => x.key !== c.key)
 }
@@ -133,6 +140,10 @@ onMounted(async () => {
 </script>
 
 <style>
+/* 出货失败的红闪反馈 */
+.card.errflash { box-shadow: 0 0 0 2px #f56c6c; animation: errshake .4s ease 3; }
+@keyframes errshake { 25% { transform: translateX(-4px); } 75% { transform: translateX(4px); } }
+
 * { margin: 0; padding: 0; box-sizing: border-box; font-family: "Microsoft YaHei", sans-serif; }
 html, body { background: transparent; overflow: hidden; }
 /* 禁止选中文字（与用户端一致） */

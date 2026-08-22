@@ -161,6 +161,8 @@ async function reload() {
     const [p, c] = await Promise.all([api('/api/admin/products'), api('/api/admin/categories')])
     products.value = p.products
     cats.value = c.categories
+  } catch (e) {
+    ElMessage.error('商品列表加载失败：' + e.message)
   } finally {
     loading.value = false
   }
@@ -200,8 +202,13 @@ async function save() {
 }
 
 async function toggle(p) {
-  await post(`/api/admin/product/${p.id}/state`, { state: p.state ? 0 : 1 })
-  reload()
+  try {
+    await post(`/api/admin/product/${p.id}/state`, { state: p.state ? 0 : 1 })
+    reload()
+  } catch (e) {
+    // 开关绑定的是数据库里的状态，操作失败它会自动弹回原位，不会假装成功
+    ElMessage.error((p.state ? '下架' : '上架') + '失败：' + e.message)
+  }
 }
 
 async function del() {

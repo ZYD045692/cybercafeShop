@@ -44,9 +44,13 @@ async function query() {
   if (from.value) q.set('from', from.value)
   if (to.value) q.set('to', to.value)
   if (pay.value) q.set('pay', pay.value)
-  const d = await api('/api/admin/records?' + q)
-  orders.value = d.orders
-  sum.value = d.sum
+  try {
+    const d = await api('/api/admin/records?' + q)
+    orders.value = d.orders
+    sum.value = d.sum
+  } catch (e) {
+    ElMessage.error('查询失败：' + e.message)
+  }
 }
 const payName = m => ({ wechat: '微信', alipay: '支付宝', cash: '现金' }[m] || m)
 onMounted(query)

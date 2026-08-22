@@ -41,14 +41,28 @@ const emit = defineEmits(['pending'])
 
 const rowCls = ({ row }) => row.status ? 'row-done' : ''
 
+// 加载失败只弹一次提示（有 60 秒轮询兜底，不刷屏）；恢复后重置标志
+let errShown = false
 async function reload() {
-  const d = await api('/api/orders')
-  orders.value = d.orders
-  emit('pending', d.orders.filter(o => !o.status).length)
+  try {
+    const d = await api('/api/orders')
+    orders.value = d.orders
+    emit('pending', d.orders.filter(o => !o.status).length)
+    errShown = false
+  } catch (e) {
+    if (!errShown) {
+      errShown = true
+      ElMessage.error('订单加载失败：' + e.message + '（每分钟自动重试）')
+    }
+  }
 }
 async function done(id) {
-  await post(`/api/order/${id}/status`, { status: 1 })
-  reload()
+  try {
+    await post(`/api/order/${id}/status`, { status: 1 })
+    reload()
+  } catch (e) {
+    ElMessage.error('操作失败：' + e.message)
+  }
 }
 const payName = m => ({ wechat: '微信', alipay: '支付宝', cash: '现金' }[m] || m)
 
