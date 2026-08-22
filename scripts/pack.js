@@ -30,7 +30,13 @@ for (const [name, p] of [['管理端', adminExe], ['用户端', clientExe]]) {
     process.exit(1)
   }
 }
-const setupExe = fs.readdirSync(nsisDir).find(f => f.endsWith('-setup.exe'))
+// 目录里可能残留多个版本的 setup.exe，挑「含版本号且版本号最大」的那个，避免取到旧版
+const setups = fs.readdirSync(nsisDir).filter(f => f.endsWith('-setup.exe'))
+const setupExe = setups
+  .map(f => ({ f, ver: (f.match(/_(\d+\.\d+\.\d+)_/) || [])[1] }))
+  .filter(x => x.ver)
+  .sort((a, b) => a.ver.localeCompare(b.ver, undefined, { numeric: true }))
+  .pop()?.f
 if (!setupExe) {
   console.error('[pack] 找不到管理端 NSIS 安装包（target/release/bundle/nsis/*-setup.exe）')
   process.exit(1)
