@@ -12,10 +12,10 @@
 
 | 层 | 技术 | 说明 |
 |---|---|---|
-| 桌面壳 | Tauri 2（Rust） | 单实例、托盘、无边框透明通知窗、开机自启 |
+| 桌面壳 | Tauri 2（Rust） | 单实例、托盘、无边框通知卡片（CSS 圆角、不透明）、开机自启 |
 | 前端 | Vue 3 + Vite 5 + Element Plus | Element Plus 按需加载（unplugin-auto-import / unplugin-vue-components） |
 | 服务端 | axum 0.8 + tokio（独立 Rust lib crate `cybercafeShop`） | 内嵌在管理端进程里，监听局域网，提供业务 API |
-| 手机端 | Vue 3 + Vite 5 + Element Plus + silueta 抠图（onnxruntime-web WASM） | 独立 `mobile/` workspace，页面由管理端 HTTP 托管在 `/m/` |
+| 手机端 | Vue 3 + Vite 5 + Element Plus + U²-Netp 抠图（onnxruntime-web WASM） | 独立 `mobile/` workspace，页面由管理端 HTTP 托管在 `/m/` |
 | 数据库 | SQLite（rusqlite 0.32 bundled） | 商品/分类/订单/店铺配置 |
 | 语音 | winmm `PlaySoundW`（SND_SYNC） | wav 音频，FIFO 队列逐条播完 |
 | 目标平台 | Windows 10+（需系统 WebView2 Runtime，Win11 必带，Win10 装过 Edge/Office 即自带） | 内存占用约 40MB |
@@ -186,18 +186,18 @@ flowchart TB
     SYNC --> RUST[Rust 调整窗口大小<br/>吸附屏幕右下角]
     RUST -->|无卡片| HIDE[整个窗口隐藏]
     RUST -->|有卡片| SHOW[显示窗口]
-    SHOW --> POLL[80ms 轮询 GetCursorPos<br/>光标在卡片区=可点，透明区=穿透到桌面]
+    SHOW --> POLL[50ms 轮询 GetCursorPos<br/>光标在卡片区=可点，透明区=穿透到桌面]
 ```
 
 - **层叠覆盖，不摊开**：一张卡片压在另一张上面，旧卡片从窗口顶部依次只露 32px 标题条，点标题条提到最前；同一机台重复呼叫不叠卡（刷新时间并置顶）。卡片再多也不会跑出屏幕。
 - 窗口大小 = 卡片实际总高，窗口吸附右下角、距屏幕底边 60px 避开任务栏；无卡片时整个窗口隐藏，不占桌面。
-- 圆角用 Win32 `SetWindowRgn` 把窗口本身裁成圆角矩形；透明区域鼠标可穿透（点得到后面的桌面/游戏）。
+- 圆角用 CSS 实现（窗口本身不透明，圆角外同色深底，不再用 SetWindowRgn 裁剪）；窗口外区域鼠标可穿透（点得到后面的桌面/游戏）。
 - 通知窗口：无边框、置顶、不抢焦点、不进任务栏。
 
 ### 4.5 店铺信息 / 商品 / 收款码管理（管理端）
 
 - 店铺信息：设置页可改**店名**和**客户端欢迎语**（两个独立项），存数据库；用户端每次打开页面时经 `/api/shopinfo` 拉取，显示在顶部。
-- 商品：新增/编辑（名称、分类、缩拼、进价、售价、图片）/上架/下架/删除；**缩拼留空自动按名称生成拼音首字母**（多音字取常用读音），可手改；**缩拼冲突时**新增商品自动追加 `_1`/`_2`……直到唯一（`whh` → `whh_1`），重名缩拼的商品图片文件名不再互相覆盖；图片前端 canvas 裁剪合成 300×300（可选抠图）后上传。
+- 商品：新增/编辑（名称、分类、缩拼、进价、售价、图片）/上架/下架/删除；**缩拼留空自动按名称生成拼音首字母**（多音字取常用读音），可手改；**缩拼冲突时**新增商品自动追加 `_1`/`_2`……直到唯一（`whh` → `whh_1`），重名缩拼的商品图片文件名不再互相覆盖；图片前端 canvas 裁剪合成 300×300 后上传（抠图在手机端 §4.7）。
 - 分类：新增/改名（同步商品表）/删除（分类下有商品时拒绝）。
 - 收款码：设置页上传微信/支付宝收款码，用户端**下次打开页面时**生效。
 
@@ -219,7 +219,7 @@ sequenceDiagram
     participant IMG as 浏览器本地抠图（WASM）
     participant DB as SQLite
 
-    P->>S: GET /m/（管理端托管静态页，含 silueta 模型+onnxruntime wasm）
+    P->>S: GET /m/（管理端托管静态页，含 u2netp 模型+onnxruntime wasm）
     P->>P: 拍照/选图 → 本地抠图（去背景）→ 旋转/缩放 → 合成 300×300 白底 JPEG
     P->>S: POST /api/m/product（新增商品，字段校验）
     S->>DB: 新增到 shop_list（缩拼冲突自动追加后缀，如 whh → whh_1）
@@ -227,7 +227,7 @@ sequenceDiagram
 ```
 
 - **页面**：独立 `mobile/` Vue 工程，构建产物由管理端 HTTP 服务托管在 `/m/`。手机页不含删除/改名/订单/销售/店铺配置，只做新增商品 + 传图，收窄攻击面。
-- **抠图**：浏览器本地 silueta 模型（U²-Net 同架构精简版，边缘质量优于 u2netp），模型 ~44MB + onnxruntime wasm，由吧台机离线托管在 `/m/bgrem/`，**不依赖外网**；抠图失败自动回退为原图仅旋转/缩放。
+- **抠图**：浏览器本地 U²-Netp 模型（`isnet_quint8` 之外的最小档，`u2netp.onnx` ~4.6MB）+ onnxruntime wasm，由吧台机离线托管在 `/m/bgrem/`，**不依赖外网**；抠图失败自动回退为原图仅旋转/缩放。
 - **缩拼冲突唯一化**：同名商品缩拼重复时，后端自动追加 `_1`/`_2`……直到唯一（`whh` → `whh_1`），避免图片文件名互相覆盖。
 
 ---
@@ -262,7 +262,7 @@ sequenceDiagram
 | POST | `/api/admin/qrcode/{kind}` | 上传收款码 |
 | GET | `/api/admin/records?from&to&pay` | 销售记录 + 合计 |
 
-请求体上限：公开 API 64KB，管理端 3MB（图片上传），手机端 3MB（图片上传）。
+请求体上限：公开 API 64KB，管理端 2MB（图片校验上限；DefaultBodyLimit 3MB），手机端 3MB（图片上传）。
 
 ### 5.2.1 手机端 API（/api/m/*，无口令）
 
@@ -380,15 +380,18 @@ CREATE TABLE shop_config (
 管理端（安装版，NSIS 安装包，当前用户安装，无需管理员权限）
 {安装目录}\
 ├─ 管理端.exe             （管理端网页内嵌其中）
-├─ seed\                  首启种子（安装包携带：空库 + 音频 + 收款码占位，★ 不含商品）
+├─ seed\                  首启种子（安装包携带：空库 + 音频 + 收款码占位 + 手机页，★ 不含商品）
+│  ├─ data\               空库 + 音频 + 收款码占位（data 目录缺什么补什么）
+│  └─ web\m\              手机端添加商品页面（构建自 mobile/，★ 含 u2netp 模型 + onnxruntime wasm）
 ├─ config.ini             [server] port = 21974（仅此一项，界面上不可改）
-└─ data\                  业务数据目录
-│  ├─ db\shop_db.db       商品库 + 订单（首启播种为空库，商品在管理端录入）
+├─ data\                  业务数据目录（首启播种：缺什么从 seed\data 补什么）
+│  ├─ db\
+│  │  ├─ shop_db.db       商品库 + 订单（首启播种为空库，商品在管理端录入）
 │  │  └─ config.db        店铺配置（店名/欢迎语，首启自动创建；★ 独立库，与商品库互不影响）
 │  ├─ image\              商品图片（首启播种为空，商品管理里上传）
 │  ├─ qrcode\             收款码（首启播种，设置页可换）
 │  └─ sound\              播报 wav（首启播种）
-├─ web\m\                 手机端添加商品页面（安装包 seed\web\m 带进来；★ 含 silueta 模型 + onnxruntime wasm）
+└─ web\m\                 手机页运行时目录（每次启动从 seed\web\m 整目录覆盖，升级后也更新）
 
 用户端（绿色软件，不安装，放每台客户机）
 dist\用户端\
