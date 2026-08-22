@@ -37,7 +37,8 @@ fn data_dir() -> AppDirs {
 #[cfg(not(debug_assertions))]
 fn seed_if_missing(base: &std::path::Path) {
     let seed = base.join("seed");
-    for d in ["data/db", "data/image", "data/qrcode", "data/sound", "web/m"] {
+    // 数据目录：只在为空时播种，绝不覆盖用户数据
+    for d in ["data/db", "data/image", "data/qrcode", "data/sound"] {
         let dst = base.join(d);
         let empty = std::fs::read_dir(&dst).map(|mut i| i.next().is_none()).unwrap_or(true);
         if empty {
@@ -47,6 +48,15 @@ fn seed_if_missing(base: &std::path::Path) {
                 copy_dir(&src, &dst);
             }
         }
+    }
+    // web/m 是程序代码不是用户数据：每次启动都整目录覆盖成安装包里的版本，
+    // 否则升级安装包后旧手机页会一直留着（seed 只补空目录，永远轮不到更新它）
+    let web_src = seed.join("web/m");
+    let web_dst = base.join("web/m");
+    if web_src.is_dir() {
+        let _ = std::fs::remove_dir_all(&web_dst);
+        let _ = std::fs::create_dir_all(&web_dst);
+        copy_dir(&web_src, &web_dst);
     }
     let cfg = base.join("config.ini");
     if !cfg.exists() {
