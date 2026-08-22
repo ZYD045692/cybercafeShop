@@ -1,0 +1,30 @@
+[package]
+name = "cybercafeShop-client"
+version = "0.2.0"
+edition = "2021"
+description = "网吧点购系统 - 用户端"
+
+[lib]
+name = "cybercafe_shop_client_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+tauri-plugin-single-instance = "2"
+hmac = "0.12"
+sha2 = "0.10"
+hex = "0.4"
+url = "2"
+
+[target.'cfg(windows)'.dependencies]
+winapi = { version = "0.3", features = ["winuser"] }
+
+[profile.release]
+opt-level = 2
+lto = true
+codegen-units = 1
+strip = true
+panic = "abort"

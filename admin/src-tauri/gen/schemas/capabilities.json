@@ -1,0 +1,1 @@
+{"default":{"identifier":"default","description":"默认权限：两个窗口都允许核心事件能力（listen/emit 订单与呼叫事件）","local":true,"windows":["main","notify"],"permissions":["core:default"]}}

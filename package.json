@@ -1,0 +1,23 @@
+{
+  "name": "cybercafeShop",
+  "private": true,
+  "version": "0.2.0",
+  "description": "网吧点购系统：管理端 + 用户端 + 手机端",
+  "workspaces": [
+    "admin",
+    "client",
+    "mobile"
+  ],
+  "scripts": {
+    "dev:admin": "node scripts/seed-dev-data.js && npm run tauri:dev -w cybercafeShop-admin",
+    "dev:client": "npm run tauri:dev -w cybercafeShop-client",
+    "dev:mobile": "npm run dev -w cybercafeShop-mobile",
+    "build:mobile": "npm run build -w cybercafeShop-mobile",
+    "build": "npm run build:mobile && npm run tauri:build -w cybercafeShop-admin && npm run tauri:build -w cybercafeShop-client",
+    "pack": "node scripts/pack.js",
+    "test": "cargo test --manifest-path admin/src-tauri/server/Cargo.toml"
+  },
+  "allowScripts": {
+    "esbuild@0.21.5": true
+  }
+}
