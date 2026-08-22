@@ -202,7 +202,20 @@ impl Db {
             );
             let (name, price) = match row {
                 Ok(v) => v,
-                Err(_) => return Err(format!("商品 {} 不存在或已下架", it.id)),
+                Err(_) => {
+                    // 报错带上商品名（这条消息会原样显示给顾客看）：能查到名字说明是下架，查不到才是删除
+                    let gname: Option<String> = tx
+                        .query_row(
+                            "SELECT gds_name FROM shop_list WHERE id=?1",
+                            params![it.id],
+                            |r| r.get(0),
+                        )
+                        .ok();
+                    return Err(match gname {
+                        Some(n) => format!("「{n}」刚被吧台下架了，请重新选购"),
+                        None => "有商品刚被吧台删除了，请重新选购".to_string(),
+                    });
+                }
             };
             total += price * it.qty as f64;
             lines.push((name, price, it.qty));

@@ -123,7 +123,7 @@
         <p style="color:var(--muted);font-size:14px;margin-top:14px">请先付款，再提交订单</p>
       </div>
       <template #footer>
-        <button class="checkout" :disabled="!qr[pay]" @click="submit">我已付款，提交订单</button>
+        <button class="checkout" :disabled="!qr[pay] || submitting" @click="submit">我已付款，提交订单</button>
         <button class="linkbtn" @click="qrDlg = false; confirmDlg = true">← 返回修改付款方式</button>
       </template>
     </el-dialog>
@@ -143,13 +143,14 @@
 import { ref, computed, onMounted } from 'vue'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 // ElMessageBox 由 unplugin-auto-import 自动导入并注入样式（手动 import 会丢 CSS）
-import { loadInit, submitOrder, callNet, imgUrl, MACHINE } from './api'
+import { loadInit, loadProducts, submitOrder, callNet, imgUrl, MACHINE } from './api'
 
 const categories = ref([]), products = ref([]), qr = ref({})
 const shopName = ref(''), welcome = ref('')
 const curCat = ref(''), kw = ref(''), cart = ref({}), pay = ref('wechat')
 const confirmDlg = ref(false), qrDlg = ref(false), callDlg = ref(false), loadErr = ref(false)
 const calling = ref(false) // 呼叫按钮防连点：一次呼叫只发一个请求
+const submitting = ref(false) // 下单防连点：双击/网络慢时连点不会下出重复订单
 
 // 搜索：纯字母/数字 → 按缩拼匹配（whh → 娃哈哈）；否则按名称包含。搜索时忽略分类。
 const shown = computed(() => {
@@ -225,6 +226,8 @@ function confirm() {
 }
 
 async function submit() {
+  if (submitting.value) return // 防连点：网络卡时连点也不会重复下单
+  submitting.value = true
   qrDlg.value = false
   const items = cartList.value.map(it => ({ id: it.id, qty: it.qty }))
   const amount = total.value.toFixed(1)
@@ -234,8 +237,25 @@ async function submit() {
     showMsg(pay.value === 'cash'
       ? `请准备好现金 ¥${amount}，吧台稍后给你送货`
       : '吧台已收到您的订单，请等待送货', '下单成功')
-  } catch {
-    showMsg('请稍后再试，或直接去吧台购买', '提交失败')
+  } catch (e) {
+    // 失败多半是商品状态变了（吧台刚下架/删除/改价）：刷新商品列表，
+    // 购物车里已不可售的条目清掉、还在售的同步最新信息，下次加购看到的就是新数据
+    try {
+      const d = await loadProducts()
+      products.value = d.products
+      categories.value = d.categories
+      const byId = new Map(d.products.map(p => [p.id, p]))
+      for (const [id, it] of Object.entries(cart.value)) {
+        const fresh = byId.get(Number(id))
+        if (fresh) it.p = fresh
+        else delete cart.value[id]
+      }
+      cart.value = { ...cart.value }
+    } catch { /* 列表刷新失败保持现状 */ }
+    // 服务端返回的具体原因（如"商品已下架"）直接显示，不再吞掉
+    showMsg(e.message || '请稍后再试，或直接去吧台购买', '提交失败')
+  } finally {
+    submitting.value = false
   }
 }
 

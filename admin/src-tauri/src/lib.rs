@@ -193,6 +193,29 @@ fn get_port(state: tauri::State<SharedState>) -> u16 {
     state.port
 }
 
+/// Windows 系统警告框（数据/端口等启动失败时用）：置顶模态，点确定返回。
+/// GUI 程序没有控制台，eprintln 没人看得见——与用户端启动失败的提示方式一致。
+#[cfg(windows)]
+fn fatal_popup(msg: &str) {
+    let to_wide = |s: &str| -> Vec<u16> { s.encode_utf16().chain(Some(0)).collect() };
+    unsafe {
+        winapi::um::winuser::MessageBoxW(
+            std::ptr::null_mut(),
+            to_wide(msg).as_ptr(),
+            to_wide("莱尚网电竞馆 · 点购管理端").as_ptr(),
+            winapi::um::winuser::MB_OK
+                | winapi::um::winuser::MB_ICONWARNING
+                | winapi::um::winuser::MB_SYSTEMMODAL
+                | winapi::um::winuser::MB_SETFOREGROUND,
+        );
+    }
+}
+
+#[cfg(not(windows))]
+fn fatal_popup(msg: &str) {
+    eprintln!("[fatal] {msg}");
+}
+
 pub fn run() {
     tauri::Builder::default()
         // 单实例：第二次启动只把已有主窗口唤到前台，新进程直接退出
@@ -216,7 +239,31 @@ pub fn run() {
             } else {
                 cybercafe_shop::auth::AuthMode::TicketOrLocalhost
             };
-            let state = server::build_state_with(dirs, mode).expect("初始化服务状态失败");
+            let base_show = dirs.base.display().to_string();
+            // 数据库打不开（文件损坏等）：弹窗说明后退出，不再 expect panic 闪退。
+            // 播种只补空目录、绝不覆盖已有文件，救不了"文件在但打不开"，所以提示备份后
+            // 改名 data 目录——重启时目录为空才会触发播种重建初始数据。
+            let state = match server::build_state_with(dirs, mode) {
+                Ok(s) => s,
+                Err(e) => {
+                    fatal_popup(&format!(
+                        "点购数据初始化失败\n\n{e}\n\n数据目录：{base_show}\n\n可把 data 目录备份改名后重开，会自动重建初始数据"
+                    ));
+                    app.handle().exit(1);
+                    return Ok(());
+                }
+            };
+
+            // 端口预检：HTTP 服务在独立线程启动，绑定失败只有 eprintln，GUI 下无声无息
+            // （窗口照开、各页"加载失败"、客户机/手机全连不上，极难排查）。这里先绑一次拦截，
+            // 被占用就弹窗说明并退出。Ok 时侦听器立即释放，实际绑定仍由服务线程完成。
+            if let Err(e) = std::net::TcpListener::bind(("0.0.0.0", port)) {
+                fatal_popup(&format!(
+                    "点购服务启动失败\n\n端口 {port} 被其他程序占用（{e}）\n\n请关掉占用端口的程序后重开；或改 config.ini 的 port（用户端 config.ini 要一起改）"
+                ));
+                app.handle().exit(1);
+                return Ok(());
+            }
 
             // 内嵌启动 HTTP 服务（独立线程跑 tokio runtime）
             let st = state.clone();

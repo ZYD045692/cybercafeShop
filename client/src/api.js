@@ -49,6 +49,11 @@ export async function loadInit() {
   return { shopName: info.shop_name || '', welcome: info.welcome || '', categories: d.categories, products: d.products, qr }
 }
 
+// 只刷新商品+分类（下单失败兜底用）：不碰收款码 blob，避免重复 createObjectURL 泄漏
+export async function loadProducts() {
+  return getJson('/api/products')
+}
+
 export async function submitOrder(payMethod, items) {
   const r = await fetch(BASE + '/api/order', {
     method: 'POST',
