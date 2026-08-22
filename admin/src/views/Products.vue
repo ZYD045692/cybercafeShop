@@ -33,11 +33,10 @@
       <el-form label-width="60px">
         <div class="picline">
           <el-form-item label="图片">
-            <div class="picbox" @click="fileInput.click()">
+            <div class="picbox" @click="editorOpen = true">
               <img v-if="preview" :src="preview">
-              <span v-else>点击选择图片<br><small>自动裁剪成 300×300</small></span>
+              <span v-else>点击选择图片<br><small>自动抠图，裁成 300×300</small></span>
             </div>
-            <input ref="fileInput" type="file" accept="image/*" style="display:none" @change="onFile">
           </el-form-item>
           <el-form-item v-if="qrImg" label="扫码添加商品" label-width="100px">
             <img class="qrimg" :src="qrImg" :title="mobileUrl">
@@ -96,6 +95,9 @@
       </div>
       <el-alert v-if="catErr" :title="catErr" type="error" :closable="false" style="margin-top:10px" />
     </el-dialog>
+
+    <!-- 抠图编辑器（与手机端同一套：打开即弹文件选择框） -->
+    <ImageEditor v-if="editorOpen" @done="onImageDone" @cancel="editorOpen = false" />
   </section>
 </template>
 
@@ -103,13 +105,20 @@
 import { ref, computed, onMounted, watch } from 'vue'
 import { pinyin } from 'pinyin-pro'
 import QRCode from 'qrcode'
-import { api, post, del as delApi, upload, imgUrl, to300, PORT } from '../api'
+import { api, post, del as delApi, upload, imgUrl, PORT } from '../api'
+import ImageEditor from '../components/ImageEditor.vue'
 
 const products = ref([]), cats = ref([]), loading = ref(true)
 const kw = ref(''), cls = ref(''), stateFilter = ref('all'), imgT = ref(Date.now())
 const editing = ref(false), form = ref({}), preview = ref(''), picBlob = ref(null), err = ref('')
 const catDlg = ref(false), newCat = ref(''), catErr = ref(''), renaming = ref(''), renameTo = ref('')
-const fileInput = ref(null)
+// 抠图编辑器开关：点图片框打开，done 拿到 300×300 JPEG blob
+const editorOpen = ref(false)
+function onImageDone(blob) {
+  picBlob.value = blob
+  preview.value = URL.createObjectURL(blob)
+  editorOpen.value = false
+}
 // 手机端二维码：内容为本机局域网 IPv4 + 端口的 /m/ 页面地址，手机扫码直接打开
 const qrImg = ref(''), mobileUrl = ref('')
 async function loadQr() {
@@ -167,16 +176,6 @@ function edit(p) {
     preview.value = ''
   }
   editing.value = true
-}
-
-async function onFile(e) {
-  const f = e.target.files[0]
-  if (!f) return
-  try {
-    picBlob.value = await to300(f, 'image/jpeg')
-    preview.value = URL.createObjectURL(picBlob.value)
-  } catch (ex) { err.value = ex.message }
-  e.target.value = ''
 }
 
 async function save() {

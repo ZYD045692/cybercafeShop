@@ -21,6 +21,7 @@ export const imgUrl = name => `${API}/image/${name}`
 export const qrUrl = kind => `${API}/qrcode/${kind}?t=${Date.now()}`
 
 // 任意图片文件 → 300x300 白底 JPEG/PNG Blob（canvas 处理，不占后端资源）
+// 收款码上传（Settings.vue）用它；商品图走抠图编辑器（components/ImageEditor.vue）
 export function to300(file, type = 'image/jpeg') {
   return new Promise((resolve, reject) => {
     const url = URL.createObjectURL(file)
