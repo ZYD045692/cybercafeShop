@@ -21,15 +21,15 @@
           <!-- 预览画布 = 最终保存的 300×300 白底图，所见即所得 -->
           <canvas ref="cv" width="300" height="300" class="cv"
                   @mousedown="dragStart" @mousemove="dragMove" @mouseup="dragEnd" @mouseleave="dragEnd" />
-          <!-- 处理中：下载模型（仅首次）+ 处理图片 两个独立进度条，各自 0→100% -->
+          <!-- 处理中：下载模型（仅首次）+ 处理图片 两个独立圆形进度圈，圈内各自 0→100% -->
           <div v-if="downloading || processing" class="process">
             <div v-if="downloading" class="proc-row">
               <p>正在下载模型…</p>
-              <el-progress type="line" :percentage="Math.round(downloadProgress)" :stroke-width="6" :show-text="false" style="width:200px" />
+              <el-progress type="circle" :percentage="Math.round(downloadProgress)" :width="90" :stroke-width="8" />
             </div>
             <div v-if="processing" class="proc-row">
               <p>正在处理图片…</p>
-              <el-progress type="line" :percentage="Math.round(processProgress)" :stroke-width="6" :show-text="false" style="width:200px" />
+              <el-progress type="circle" :percentage="Math.round(processProgress)" :width="90" :stroke-width="8" />
             </div>
           </div>
         </div>
