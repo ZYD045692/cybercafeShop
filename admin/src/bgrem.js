@@ -4,7 +4,7 @@
 // 缓存同样走 IndexedDB（键 = 模型 URL，换模型文件名旧缓存自然失效）。
 // ★ 换模型时：mobile/src/bgrem.js 的 MODEL_URL 和这里要一起改。
 
-import { removeBackground } from '@planby-tech/rmbg-webgpu'
+import { RmbgSession } from '@planby-tech/rmbg-webgpu'
 import { API } from './api'
 
 const BGREM_BASE = `${API}/m/bgrem/`   // 吧台机 HTTP 服务托管的手机端资源目录
@@ -81,16 +81,31 @@ async function loadModel(url, onProgress) {
  * @param {File} file 原图
  * @param {(e:{stage:string,percent?:number})=>void} onProgress
  */
+let activeSession = null // 当前活跃的抠图 session（组件卸载时主动释放，防内存泄漏）
+
+/** 组件卸载时调用：释放仍在进行的模型 session（dispose 后其 run 会中断并抛错，被调用方 catch） */
+export async function disposeBgrem() {
+  const s = activeSession
+  activeSession = null
+  if (s) await s.dispose().catch(() => {})
+}
+
 export async function cutout(file, onProgress) {
   const { buf, source } = await loadModel(MODEL_URL, p => onProgress?.({ stage: 'download', percent: p }))
   if (source === 'network') onProgress?.({ stage: 'download', percent: 100 }) // 下载完成
   onProgress?.({ stage: 'image' }) // 模型就位，开始抠图
-  const blob = await removeBackground(file, {
+  const session = await RmbgSession.create({
     model: 'u2netp',              // 预设参数（320×320 / ImageNet 归一化 / minmax 输出）
     modelUrl: buf,                // 模型本体从 IndexedDB / /m/bgrem/ 拿
     executionProviders: ['wasm'], // 与手机端一致，强制 WASM
     wasmPaths: BGREM_BASE,        // wasm 也从手机端目录加载（结尾带 /）
   })
-  onProgress?.({ stage: 'done' })
-  return blob
+  activeSession = session
+  try {
+    const res = await session.remove(file)
+    return res.outputBlob
+  } finally {
+    activeSession = null
+    await session.dispose().catch(() => {})
+  }
 }

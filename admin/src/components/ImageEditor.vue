@@ -78,8 +78,8 @@
 <script setup>
 // 与手机端 mobile/src/components/ImageEditor.vue 同一套交互，
 // 差异：管理端没有摄像头，打开组件即弹出文件管理器选图（onMounted 自动 click）。
-import { ref, nextTick, onMounted } from 'vue'
-import { cutout } from '../bgrem'
+import { ref, nextTick, onMounted, onUnmounted } from 'vue'
+import { cutout, disposeBgrem } from '../bgrem'
 
 const emit = defineEmits(['done', 'cancel'])
 // 管理端：由父组件先选好图再打开本组件（initial-file 直接处理），本组件不再自动弹文件选择框
@@ -112,6 +112,12 @@ function stopProcessProgress() {
   processProgress.value = 100
   processing.value = false
 }
+
+// 卸载时释放：停掉假进度定时器 + 释放进行中的模型 session（避免管理端常驻时内存泄漏）
+onUnmounted(() => {
+  clearInterval(processTimer)
+  disposeBgrem()
+})
 
 onMounted(() => {
   // 父组件已选好图：直接处理。若没有（异常兜底）才弹文件框。

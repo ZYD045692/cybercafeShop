@@ -83,8 +83,8 @@
 </template>
 
 <script setup>
-import { ref, nextTick } from 'vue'
-import { cutout } from '../bgrem'
+import { ref, nextTick, onUnmounted } from 'vue'
+import { cutout, disposeBgrem } from '../bgrem'
 
 const emit = defineEmits(['done', 'cancel'])
 
@@ -118,6 +118,12 @@ function stopProcessProgress() {
   processProgress.value = 100
   processing.value = false
 }
+
+// 卸载时释放：停掉假进度定时器 + 释放进行中的模型 session（避免管理端常驻时内存泄漏）
+onUnmounted(() => {
+  clearInterval(processTimer)
+  disposeBgrem()
+})
 
 async function onFile(e, src = 'gallery') {
   const f = e.target.files[0]

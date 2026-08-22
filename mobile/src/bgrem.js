@@ -2,7 +2,7 @@
 // 强制用 WASM（WebGPU 需要 HTTPS/localhost，手机走 http://吧台IP 是明文 HTTP，不能用 WebGPU）。
 // 成功返回透明 PNG Blob；失败抛异常，由调用方回退到"原图仅旋转/缩放"。
 
-import { removeBackground } from '@planby-tech/rmbg-webgpu'
+import { RmbgSession } from '@planby-tech/rmbg-webgpu'
 
 // 模型与 onnxruntime wasm 资源位于页面同级的 bgrem/ 目录（构建时拷进 mobile/public/bgrem）。
 // 必须基于 location.href 解析成绝对 URL 且带结尾斜杠：
@@ -82,6 +82,15 @@ async function loadModel(url, onProgress) {
   return { buf, source: 'network' }
 }
 
+let activeSession = null // 当前活跃的抠图 session（组件卸载时主动释放，防内存泄漏）
+
+/** 组件卸载时调用：释放仍在进行的模型 session（dispose 后其 run 会中断并抛错，被调用方 catch） */
+export async function disposeBgrem() {
+  const s = activeSession
+  activeSession = null
+  if (s) await s.dispose().catch(() => {})
+}
+
 /**
  * 抠图：返回透明背景 PNG Blob。
  * 回调 onProgress({stage})：download（首次下载模型，带 percent 0~100）/ image（开始处理图片）/ done（完成）。
@@ -94,12 +103,18 @@ export async function cutout(file, onProgress) {
   const { buf, source } = await loadModel(MODEL_URL, p => onProgress?.({ stage: 'download', percent: p }))
   if (source === 'network') onProgress?.({ stage: 'download', percent: 100 }) // 下载完成
   onProgress?.({ stage: 'image' }) // 模型就位，开始抠图
-  const blob = await removeBackground(file, {
+  const session = await RmbgSession.create({
     model: 'u2netp',
     modelUrl: buf,             // 直接喂内存里的模型，离线可用
     executionProviders: ['wasm'], // 强制 CPU/WASM，局域网 HTTP 下 WebGPU 不可用
     wasmPaths: BGREM_BASE,     // onnxruntime wasm（ort-wasm-simd-threaded.*）所在目录，结尾带 /
   })
-  onProgress?.({ stage: 'done' })
-  return blob
+  activeSession = session
+  try {
+    const res = await session.remove(file)
+    return res.outputBlob
+  } finally {
+    activeSession = null
+    await session.dispose().catch(() => {})
+  }
 }
