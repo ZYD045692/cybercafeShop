@@ -28,8 +28,8 @@
       <div v-if="!filtered.length && !loading" class="mempty">{{ emptyText }}</div>
     </div>
 
-    <!-- 编辑/新增弹窗 -->
-    <el-dialog v-model="editing" :title="form.id ? '编辑商品' : '添加商品'" width="520px">
+    <!-- 编辑/新增弹窗；destroy-on-close：关闭即销毁内容，确保 ImageEditor 卸载触发 onUnmounted 释放模型 session -->
+    <el-dialog v-model="editing" :title="form.id ? '编辑商品' : '添加商品'" width="520px" destroy-on-close>
       <el-form label-width="60px">
         <div class="picline">
           <el-form-item label="图片">
@@ -73,8 +73,8 @@
       </template>
     </el-dialog>
 
-    <!-- 分类管理弹窗 -->
-    <el-dialog v-model="catDlg" title="分类管理" width="400px">
+    <!-- 分类管理弹窗；destroy-on-close：关闭即销毁内容 -->
+    <el-dialog v-model="catDlg" title="分类管理" width="400px" destroy-on-close>
       <div v-for="c in cats" :key="c.name" class="catrow">
         <template v-if="renaming === c.name">
           <el-input v-model="renameTo" size="small" style="flex:1" />
@@ -103,7 +103,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, watch } from 'vue'
+import { ref, computed, onMounted, watch, onBeforeUnmount } from 'vue'
 import { pinyin } from 'pinyin-pro'
 import QRCode from 'qrcode'
 import { api, post, del as delApi, upload, imgUrl, PORT } from '../api'
@@ -112,6 +112,10 @@ import ImageEditor from '../components/ImageEditor.vue'
 const products = ref([]), cats = ref([]), loading = ref(true)
 const kw = ref(''), cls = ref(''), stateFilter = ref('all'), imgT = ref(Date.now())
 const editing = ref(false), form = ref({}), preview = ref(''), picBlob = ref(null), err = ref('')
+let previewBlobUrl = '' // 当前 preview 指向的 blob URL（imgUrl 的 http 图不算），换图/卸载时 revoke 防内存泄漏
+function revokePreview() {
+  if (previewBlobUrl) { URL.revokeObjectURL(previewBlobUrl); previewBlobUrl = '' }
+}
 const catDlg = ref(false), newCat = ref(''), catErr = ref(''), renaming = ref(''), renameTo = ref('')
 // 抠图编辑器：点图片框 → 直接弹系统文件选择器 → 选完图再打开编辑器（initial-file 传入），done 拿到 300×300 JPEG blob
 const editorOpen = ref(false)
@@ -124,8 +128,10 @@ function onFile(e) {
   editorOpen.value = true
 }
 function onImageDone(blob) {
+  revokePreview() // 换新图先释放上一张的 blob URL
   picBlob.value = blob
-  preview.value = URL.createObjectURL(blob)
+  previewBlobUrl = URL.createObjectURL(blob)
+  preview.value = previewBlobUrl
   editorOpen.value = false
   pendingFile.value = null
 }
@@ -180,6 +186,7 @@ async function reload() {
 
 function edit(p) {
   err.value = ''; picBlob.value = null
+  revokePreview() // 每次进编辑/切换商品，释放旧的 blob preview
   // 二维码只在第一次打开弹窗时才生成（延迟加载，避免进入商品页就做 canvas 操作）
   if (!qrImg.value) loadQr()
   if (p) {
@@ -263,6 +270,11 @@ async function delCat(name) {
 }
 
 onMounted(() => { reload() })
+// 切走商品页（App.vue 的 v-if 卸载）时释放 blob preview / 图片 blob，防常驻内存泄漏
+onBeforeUnmount(() => {
+  revokePreview()
+  picBlob.value = null
+})
 </script>
 
 <style scoped>

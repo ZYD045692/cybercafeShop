@@ -81,31 +81,32 @@ async function loadModel(url, onProgress) {
  * @param {File} file 原图
  * @param {(e:{stage:string,percent?:number})=>void} onProgress
  */
-let activeSession = null // 当前活跃的抠图 session（组件卸载时主动释放，防内存泄漏）
+let session = null // 复用的抠图 session：组件生命周期内只建一次，卸载时 disposeBgrem 释放
 
-/** 组件卸载时调用：释放仍在进行的模型 session（dispose 后其 run 会中断并抛错，被调用方 catch） */
-export async function disposeBgrem() {
-  const s = activeSession
-  activeSession = null
-  if (s) await s.dispose().catch(() => {})
-}
-
-export async function cutout(file, onProgress) {
+/** 取 session（惰性单例）：首次创建时下载/加载模型并建 session，之后反复抠图复用，不再新建（避免 WASM 内存反复增长） */
+async function getSession(onProgress) {
+  if (session) return session
   const { buf, source } = await loadModel(MODEL_URL, p => onProgress?.({ stage: 'download', percent: p }))
   if (source === 'network') onProgress?.({ stage: 'download', percent: 100 }) // 下载完成
-  onProgress?.({ stage: 'image' }) // 模型就位，开始抠图
-  const session = await RmbgSession.create({
+  session = await RmbgSession.create({
     model: 'u2netp',              // 预设参数（320×320 / ImageNet 归一化 / minmax 输出）
     modelUrl: buf,                // 模型本体从 IndexedDB / /m/bgrem/ 拿
     executionProviders: ['wasm'], // 与手机端一致，强制 WASM
     wasmPaths: BGREM_BASE,        // wasm 也从手机端目录加载（结尾带 /）
   })
-  activeSession = session
-  try {
-    const res = await session.remove(file)
-    return res.outputBlob
-  } finally {
-    activeSession = null
-    await session.dispose().catch(() => {})
-  }
+  return session
+}
+
+/** 组件卸载时调用：释放复用的模型 session（onnxruntime 的 WASM 堆随后由 GC 回收） */
+export async function disposeBgrem() {
+  const s = session
+  session = null
+  if (s) await s.dispose().catch(() => {})
+}
+
+export async function cutout(file, onProgress) {
+  const s = await getSession(onProgress) // 首次含下载进度；之后复用不再走 download 阶段
+  onProgress?.({ stage: 'image' }) // 开始处理图片
+  const res = await s.remove(file)
+  return res.outputBlob
 }

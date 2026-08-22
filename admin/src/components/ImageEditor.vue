@@ -97,6 +97,7 @@ const processing = ref(false)    // 处理图片中（显示处理进度条）
 const processProgress = ref(0)   // 处理图片假进度 0~100
 
 let processTimer = null
+let imgBlobUrl = '' // 当前预览图的 blob URL（loadImg 传入），换图/卸载时 revoke 防泄漏
 // 处理图片阶段假进度：抠图库无真实进度回调，用定时器平滑爬升到 90% 封顶，真正完成时跳到 100。
 // 下载模型阶段用 bgrem.js 报的真实 fetch 进度，不在这里模拟。
 function startProcessProgress() {
@@ -113,9 +114,10 @@ function stopProcessProgress() {
   processing.value = false
 }
 
-// 卸载时释放：停掉假进度定时器 + 释放进行中的模型 session（避免管理端常驻时内存泄漏）
+// 卸载时释放：停掉假进度定时器 + revoke blob URL + 释放模型 session（避免管理端常驻时内存泄漏）
 onUnmounted(() => {
   clearInterval(processTimer)
+  if (imgBlobUrl) { URL.revokeObjectURL(imgBlobUrl); imgBlobUrl = '' }
   disposeBgrem()
 })
 
@@ -169,6 +171,8 @@ function rePick() {
 }
 
 function loadImg(url) {
+  if (imgBlobUrl && imgBlobUrl !== url) { URL.revokeObjectURL(imgBlobUrl) } // 换图释放上一张 blob URL
+  imgBlobUrl = url.startsWith('blob:') ? url : ''
   const img = new Image()
   img.onload = async () => {
     sourceImg.value = img
