@@ -29,21 +29,20 @@
     </div>
 
     <!-- 编辑/新增弹窗 -->
-    <el-dialog v-model="editing" :title="form.id ? '编辑商品' : '添加商品'" width="480px">
+    <el-dialog v-model="editing" :title="form.id ? '编辑商品' : '添加商品'" width="520px">
       <el-form label-width="60px">
-        <el-form-item label="图片">
-          <div class="picrow">
+        <div class="picline">
+          <el-form-item label="图片">
             <div class="picbox" @click="fileInput.click()">
               <img v-if="preview" :src="preview">
               <span v-else>点击选择图片<br><small>自动裁剪成 300×300</small></span>
             </div>
-            <div class="qrbox" v-if="qrImg" :title="mobileUrl">
-              <img :src="qrImg">
-              <span>手机扫码<br><small>打开手机端添加商品</small></span>
-            </div>
-          </div>
-          <input ref="fileInput" type="file" accept="image/*" style="display:none" @change="onFile">
-        </el-form-item>
+            <input ref="fileInput" type="file" accept="image/*" style="display:none" @change="onFile">
+          </el-form-item>
+          <el-form-item v-if="qrImg" label="扫码添加商品" label-width="100px">
+            <img class="qrimg" :src="qrImg" :title="mobileUrl">
+          </el-form-item>
+        </div>
         <el-form-item label="名称">
           <el-input v-model="form.name" placeholder="如 百事可乐500ml" />
         </el-form-item>
@@ -256,10 +255,11 @@ onMounted(() => { reload(); loadQr() })
 .mcard.off .pic img { opacity: .35; filter: grayscale(1); }
 .mcard.off .pn { color: #9ca3af; }
 .sw { position: absolute; top: 8px; right: 8px; z-index: 2; }
-.picrow { display: flex; gap: 16px; align-items: stretch; }
-.picbox { width: 120px; height: 120px; border: 1px dashed #d1d5db; border-radius: 8px; display: flex; align-items: center; justify-content: center; cursor: pointer; font-size: 13px; color: #999; text-align: center; overflow: hidden; }
-.picbox img { max-width: 100%; max-height: 100%; object-fit: contain; }
-.qrbox { width: 120px; border: 1px solid #ebeef5; border-radius: 8px; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 6px; box-sizing: border-box; font-size: 13px; color: #999; text-align: center; }
-.qrbox img { width: 84px; height: 84px; }
+/* 图片 + 扫码添加商品：两个文字都用 el-form-item 的 label（同款元素），外层 .picline 横排成一行 */
+.picline { display: flex; align-items: flex-start; gap: 16px; margin-bottom: 18px; }
+.picline .el-form-item { margin-bottom: 0; }
+.picbox { width: 120px; height: 120px; box-sizing: border-box; border: 1px dashed #d1d5db; border-radius: 8px; display: flex; align-items: center; justify-content: center; cursor: pointer; font-size: 13px; color: #999; text-align: center; overflow: hidden; flex-shrink: 0; }
+.picbox img { width: 100%; height: 100%; object-fit: cover; }
+.qrimg { width: 120px; height: 120px; flex-shrink: 0; }
 .catrow { display: flex; align-items: center; gap: 8px; padding: 8px 0; border-bottom: 1px solid #f0f0f0; font-size: 15px; }
 </style>
