@@ -251,6 +251,7 @@ sequenceDiagram
 | 方法 | 路径 | 说明 |
 |---|---|---|
 | GET/POST | `/api/admin/shopinfo` | 读/改店铺信息（店名、欢迎语） |
+| GET | `/api/admin/hostinfo` | 本机局域网 IPv4（添加商品弹窗的手机端二维码用） |
 | GET | `/api/orders` · POST `/api/order/{id}/status` | 订单列表/标记处理（订单页最多显示最近 500 条） |
 | GET | `/api/admin/products` | 全部商品（含进价/上下架状态） |
 | POST | `/api/admin/product` | 新增/修改商品（缩拼留空自动生成） |

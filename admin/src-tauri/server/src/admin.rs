@@ -331,11 +331,68 @@ fn valid_date(s: &str) -> bool {
         && b.iter().enumerate().all(|(i, c)| i == 4 || i == 7 || c.is_ascii_digit())
 }
 
+/// 本机局域网 IPv4（参考 Landisk 的做法）：
+/// 1. 优先解析 Windows ipconfig 输出，跳过虚拟网卡段（VMware/VirtualBox/VPN/TUN 等），
+///    取第一个标准局域网 IPv4（192.168.x / 10.x / 172.16-31.x），保证拿到真实网卡地址；
+/// 2. 失败退回 UDP 路由法（不发包，只让系统选出口网卡），排除代理 fake-ip 段；
+/// 3. 都拿不到时用 127.0.0.1。
+fn lan_ip() -> String {
+    if let Ok(output) = std::process::Command::new("ipconfig").output() {
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let mut skip_adapter = false;
+        for line in stdout.lines() {
+            let line = line.trim();
+            if line.contains("Virtual") || line.contains("VMware") || line.contains("VirtualBox")
+                || line.contains("Tailscale") || line.contains("WireGuard") || line.contains("TUN")
+                || line.contains("Proxy") || line.contains("Clash") || line.contains("TAP")
+            {
+                skip_adapter = true;
+                continue;
+            }
+            if line.is_empty() {
+                skip_adapter = false;
+                continue;
+            }
+            if skip_adapter { continue; }
+            // 解析 "IPv4 地址 . . . . . . . . . . . . : 192.168.1.12"
+            if line.contains("IPv4") && line.contains(':') {
+                if let Some(ip) = line.split(':').nth(1).map(|s| s.trim()) {
+                    if ip.starts_with("192.168.") || ip.starts_with("10.")
+                        || (ip.starts_with("172.") && ip.split('.').nth(1)
+                            .and_then(|n| n.parse::<u16>().ok())
+                            .map_or(false, |n| (16..=31).contains(&n)))
+                    {
+                        return ip.to_string();
+                    }
+                }
+            }
+        }
+    }
+    if let Ok(udp) = std::net::UdpSocket::bind("0.0.0.0:0") {
+        if udp.connect("223.5.5.5:53").is_ok() {
+            if let Ok(local) = udp.local_addr() {
+                let ip = local.ip();
+                let s = ip.to_string();
+                if ip.is_ipv4() && !ip.is_loopback() && !s.starts_with("198.18.") && !s.starts_with("198.19.") {
+                    return s;
+                }
+            }
+        }
+    }
+    "127.0.0.1".to_string()
+}
+
+/// 管理端取本机局域网 IPv4，用于在添加商品弹窗里生成手机端二维码
+async fn host_info() -> Json<Value> {
+    Json(json!({ "ok": true, "lan_ip": lan_ip() }))
+}
+
 pub fn admin_router(ctx: Arc<AdminCtx>) -> Router {
     Router::new()
         .route("/api/orders", axum::routing::get(list_orders))
         .route("/api/order/{id}/status", axum::routing::post(set_status))
         .route("/api/admin/shopinfo", axum::routing::get(get_shopinfo).post(set_shopinfo))
+        .route("/api/admin/hostinfo", axum::routing::get(host_info))
         .route("/api/admin/products", axum::routing::get(admin_products))
         .route("/api/admin/product", axum::routing::post(upsert_product))
         .route("/api/admin/product/{id}/state", axum::routing::post(set_product_state))

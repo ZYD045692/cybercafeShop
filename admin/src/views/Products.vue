@@ -32,9 +32,15 @@
     <el-dialog v-model="editing" :title="form.id ? '编辑商品' : '添加商品'" width="480px">
       <el-form label-width="60px">
         <el-form-item label="图片">
-          <div class="picbox" @click="fileInput.click()">
-            <img v-if="preview" :src="preview">
-            <span v-else>点击选择图片<br><small>自动裁剪成 300×300</small></span>
+          <div class="picrow">
+            <div class="picbox" @click="fileInput.click()">
+              <img v-if="preview" :src="preview">
+              <span v-else>点击选择图片<br><small>自动裁剪成 300×300</small></span>
+            </div>
+            <div class="qrbox" v-if="qrImg" :title="mobileUrl">
+              <img :src="qrImg">
+              <span>手机扫码<br><small>打开手机端添加商品</small></span>
+            </div>
           </div>
           <input ref="fileInput" type="file" accept="image/*" style="display:none" @change="onFile">
         </el-form-item>
@@ -97,7 +103,8 @@
 <script setup>
 import { ref, computed, onMounted, watch } from 'vue'
 import { pinyin } from 'pinyin-pro'
-import { api, post, del as delApi, upload, imgUrl, to300 } from '../api'
+import QRCode from 'qrcode'
+import { api, post, del as delApi, upload, imgUrl, to300, PORT } from '../api'
 
 const products = ref([]), cats = ref([]), loading = ref(true)
 const kw = ref(''), cls = ref(''), stateFilter = ref('all'), imgT = ref(Date.now())
