@@ -37,7 +37,7 @@ if (!setupExe) {
 }
 // 从 NSIS 原始名提取版本号（形如 "xxx_0.1.0_x64-setup.exe"）
 const verMatch = setupExe.match(/_(\d+\.\d+\.\d+)_/)
-const ver = verMatch ? verMatch[1] : '0.2.0'
+const ver = verMatch ? verMatch[1] : '0.3.0'
 
 fs.rmSync(dist, { recursive: true, force: true })
 fs.mkdirSync(clientOut, { recursive: true })

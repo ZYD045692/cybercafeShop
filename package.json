@@ -1,7 +1,7 @@
 {
   "name": "cybercafeShop",
   "private": true,
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "网吧点购系统：管理端 + 用户端 + 手机端",
   "workspaces": [
     "admin",

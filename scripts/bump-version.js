@@ -1,6 +1,7 @@
 // 一键修改项目版本号：把所有 package.json / tauri.conf.json / Cargo.toml 里的 version 同步为新值。
-// 用法：node scripts/bump-version.js 0.2.0
+// 用法：node scripts/bump-version.js 0.3.0
 // 说明：三段式 semver（x.y.z），前短后短即各段不带前导零；改完记得重新 npm install 同步 package-lock。
+// 覆盖 workspace：root + admin + client + mobile 的 package.json、两端 tauri.conf.json、三个 Cargo.toml。
 const fs = require('fs')
 const path = require('path')
 
@@ -17,6 +18,7 @@ const jsonFiles = [
   'package.json',
   'admin/package.json',
   'client/package.json',
+  'mobile/package.json',
   'admin/src-tauri/tauri.conf.json',
   'client/src-tauri/tauri.conf.json',
 ]
