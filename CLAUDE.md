@@ -166,3 +166,4 @@ admin/src-tauri/server/src/
 - 改商品/分类 SQL：`shop_list`/`shop_fl` 字段在图中保留了不少预留列（`gds_gys`、`gds_js`、`gds_ext_1/2/3` 等），别当垃圾删，`db.rs` 的 `upsert_product` 依赖它们的默认值。（`gds_bt_count`/`gds_ck_count` 是库存预留列，本系统未使用、代码不读取，新库可不建。）
 - 改 UI（用户端）：改 `client/src` 后，dev 用 vite 热重载直接看；生产要重新 `npm run pack`（重新编译用户端 exe）才能在客户机生效。
 - 改手机页（mobile/）：dev 用 `npm run dev:mobile`（:14203）手机看；或跑一次 `node scripts/seed-dev-data.js` 把新页面同步到 `dev-data/web/m`（dev 管理端托管）。生产要重新 `npm run pack`。
+- **两端图片编辑器是同一套交互**（`admin/src/components/ImageEditor.vue` 与 `mobile/src/components/ImageEditor.vue`），改一处必须同步另一处。共同点：选图→空白画布→假进度条（`startFakeProgress`/`stopFakeProgress` 定时器模拟，90% 封顶、完成跳 100）→抠图填充→旋转/缩放/翻转→应用导出 300×300；处理中「应用」有守卫。差异仅：手机端多拍照入口（`cameraInput`/`enterFrom`）、失败回选图页、触摸事件；管理端失败留空白画布。缩拼生成两端一致（名称变化无条件重算，见 `Products.vue::watch(name)` 与 `AddProduct.vue::onName`）。
