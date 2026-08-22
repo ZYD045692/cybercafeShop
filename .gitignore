@@ -3,7 +3,7 @@ dist/
 dev-data/
 target/
 package-lock.json
-
+商品数据包.zip
 # 旧的 /shop/ 托管目录（架构已改为用户端网页内嵌 exe，/shop/ 已废弃）
 web/shop/
 

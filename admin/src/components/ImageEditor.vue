@@ -17,9 +17,16 @@
       </div>
       <!-- 有图：选完图立即显示画布（空白），抠图完成后再填充 -->
       <div v-else class="stage">
-        <!-- 预览画布 = 最终保存的 300×300 白底图，所见即所得 -->
-        <canvas ref="cv" width="300" height="300" class="cv"
-                @mousedown="dragStart" @mousemove="dragMove" @mouseup="dragEnd" @mouseleave="dragEnd" />
+        <div class="cv-wrap">
+          <!-- 预览画布 = 最终保存的 300×300 白底图，所见即所得 -->
+          <canvas ref="cv" width="300" height="300" class="cv"
+                  @mousedown="dragStart" @mousemove="dragMove" @mouseup="dragEnd" @mouseleave="dragEnd" />
+          <!-- 抠图/加载模型中：假进度条（首次加载模型会走一会，有缓存一闪而过） -->
+          <div v-if="processing" class="process">
+            <el-progress type="line" :percentage="Math.round(progress)" :stroke-width="6" :show-text="false" style="width:200px" />
+            <p>正在处理图片，首次加载模型需稍等…</p>
+          </div>
+        </div>
       </div>
 
       <!-- 编辑工具栏 -->
@@ -78,6 +85,25 @@ const flipX = ref(false)
 const scale = ref(1)
 const fileInput = ref(null)
 const cv = ref(null)
+const processing = ref(false) // 抠图/加载模型处理中（显示假进度条）
+const progress = ref(0)       // 假进度 0~100
+
+let progressTimer = null
+// 假进度：模型库无真实进度回调（只有 20/50/100 阶段锚点），用定时器平滑爬升到 90% 封顶，
+// 抠图真正完成时跳到 100。首次加载模型（无缓存）会多走一会，有缓存则一闪而过。
+function startFakeProgress() {
+  processing.value = true
+  progress.value = 0
+  clearInterval(progressTimer)
+  progressTimer = setInterval(() => {
+    if (progress.value < 90) progress.value += 1 + Math.random() * 2
+  }, 150)
+}
+function stopFakeProgress(p = 100) {
+  clearInterval(progressTimer)
+  progress.value = p
+  processing.value = false
+}
 
 onMounted(() => {
   // 父组件已选好图：直接处理。若没有（异常兜底）才弹文件框。
@@ -98,10 +124,13 @@ async function onFile(e) {
 // 选完图先显示空白画布（涂白），抠图后台完成后再填充抠好的透明图；失败保留空白并提示
 async function processFile(f) {
   render() // 立刻画一张空白 300×300 白底
+  startFakeProgress()
   try {
     const blob = await cutout(f)
+    stopFakeProgress(100)
     loadImg(URL.createObjectURL(blob))
   } catch (ex) {
+    stopFakeProgress()
     ElMessage.warning('抠图失败：' + (ex?.message || ex) + '，可重新选图或直接填写其他信息')
   }
 }
@@ -187,8 +216,9 @@ header .t { font-size: 16px; font-weight: bold; }
 .pick .ico { font-size: 26px; }
 .tip { margin: 0; font-size: 12px; color: #a8abb2; text-align: center; }
 .cv { width: 300px; height: 300px; border: 1px solid #e4e7ed; border-radius: 8px; cursor: grab; }
-.cutting { text-align: center; color: #606266; }
-.cutting p { margin-top: 12px; font-size: 13px; }
+.cv-wrap { position: relative; }
+.process { position: absolute; inset: 0; background: rgba(255,255,255,.92); border-radius: 8px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; }
+.process p { margin: 0; font-size: 13px; color: #606266; }
 .tools { padding: 0 16px 12px; }
 .row { margin-bottom: 12px; }
 .row-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px; }

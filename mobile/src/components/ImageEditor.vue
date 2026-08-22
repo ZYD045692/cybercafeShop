@@ -6,15 +6,8 @@
         <button class="close" @click="emit('cancel')">✕</button>
       </header>
 
-      <!-- 抠图中：转圈等待（先于空态判断，避免重选时闪出选图页） -->
-      <div v-if="cutting" class="stage">
-        <div class="cutting">
-          <el-progress type="circle" :percentage="cutProgress" :width="90" />
-          <p>正在抠图，首次加载模型需稍等…</p>
-        </div>
-      </div>
       <!-- 未选图：拍照 或 从相册选择 -->
-      <div v-else-if="!sourceImg" class="stage empty">
+      <div v-if="!picked" class="stage empty">
         <!-- capture="environment"：手机浏览器直接调起后置摄像头；不带 capture 的走相册/文件 -->
         <input ref="cameraInput" type="file" accept="image/*" capture="environment" style="display:none" @change="onFile($event,'camera')">
         <input ref="fileInput" type="file" accept="image/*" style="display:none" @change="onFile($event,'gallery')">
@@ -28,16 +21,23 @@
         </div>
         <p class="tip">建议把商品放在干净背景上拍摄，抠图效果更好</p>
       </div>
-      <!-- 已选图且非抠图中：编辑预览 -->
+      <!-- 已选图：画布（选完立即空白，抠图完成后再填充；失败保持空白可重新选择） -->
       <div v-else class="stage">
-        <!-- 预览画布 = 最终保存的 300×300 白底图，所见即所得 -->
-        <canvas ref="cv" width="300" height="300" class="cv"
-                @mousedown="dragStart" @mousemove="dragMove" @mouseup="dragEnd" @mouseleave="dragEnd"
-                @touchstart.passive="dragStart" @touchmove.prevent="dragMove" @touchend="dragEnd" />
+        <div class="cv-wrap">
+          <!-- 预览画布 = 最终保存的 300×300 白底图，所见即所得 -->
+          <canvas ref="cv" width="300" height="300" class="cv"
+                  @mousedown="dragStart" @mousemove="dragMove" @mouseup="dragEnd" @mouseleave="dragEnd"
+                  @touchstart.passive="dragStart" @touchmove.prevent="dragMove" @touchend="dragEnd" />
+          <!-- 抠图/加载模型中：假进度条（首次加载模型会走一会，有缓存一闪而过） -->
+          <div v-if="processing" class="process">
+            <el-progress type="line" :percentage="Math.round(progress)" :stroke-width="6" :show-text="false" style="width:200px" />
+            <p>正在处理图片，首次加载模型需稍等…</p>
+          </div>
+        </div>
       </div>
 
-      <!-- 编辑工具栏（有图且非抠图中） -->
-      <template v-if="sourceImg && !cutting">
+      <!-- 编辑工具栏（有抠好的图才出现） -->
+      <template v-if="sourceImg">
         <div class="tools">
           <div class="row">
             <div class="row-head">
@@ -68,12 +68,9 @@
         </div>
       </template>
 
-      <footer v-if="sourceImg && !cutting">
+      <footer v-if="sourceImg">
         <el-button @click="emit('cancel')">取消</el-button>
         <el-button type="primary" plain @click="apply">应用</el-button>
-      </footer>
-      <footer v-if="cutting">
-        <el-button @click="emit('cancel')">取消</el-button>
       </footer>
     </div>
   </div>
@@ -86,8 +83,9 @@ import { cutout } from '../bgrem'
 const emit = defineEmits(['done', 'cancel'])
 
 const sourceImg = ref(null)   // 抠图后的透明图（Image 元素）
-const cutting = ref(false)
-const cutProgress = ref(0)
+const picked = ref(false)     // 已选图（画布常驻显示；未选图才显示拍照/相册入口）
+const processing = ref(false) // 抠图/加载模型处理中（显示假进度条）
+const progress = ref(0)       // 假进度 0~100
 const angle = ref(0)          // 连续角度：-45 ~ +45，用于把拍歪的商品摆正
 const flipX = ref(false)
 const scale = ref(1)
@@ -96,24 +94,45 @@ const cameraInput = ref(null)
 const cv = ref(null)
 const enterFrom = ref('gallery') // 记录本次进图来源：camera=拍照 / gallery=相册，重选时据此弹对应入口
 
+let progressTimer = null
+// 假进度：模型库无真实进度回调（只有 20/50/100 阶段锚点），用定时器平滑爬升到 90% 封顶，
+// 抠图真正完成时跳到 100。首次加载模型（无缓存）会多走一会，有缓存则一闪而过。
+function startFakeProgress() {
+  processing.value = true
+  progress.value = 0
+  clearInterval(progressTimer)
+  progressTimer = setInterval(() => {
+    if (progress.value < 90) progress.value += 1 + Math.random() * 2
+  }, 150)
+}
+function stopFakeProgress(p = 100) {
+  clearInterval(progressTimer)
+  progress.value = p
+  processing.value = false
+}
+
 async function onFile(e, src = 'gallery') {
   const f = e.target.files[0]
   if (!f) return
   e.target.value = ''
   enterFrom.value = src
-  cutting.value = true
-  cutProgress.value = 0
+  picked.value = true
+  await nextTick() // 画布挂载后再涂白
+  render() // 立刻画一张空白 300×300 白底，抠图完成后再填充
+  startFakeProgress()
   try {
-    const blob = await cutout(f, p => { cutProgress.value = p })
+    const blob = await cutout(f)
+    stopFakeProgress(100)
     loadImg(URL.createObjectURL(blob))
   } catch (ex) {
-    // 抠图失败回退：直接用原图，仅旋转/缩放；原因直接弹给用户（没人会去看控制台）
-    loadImg(URL.createObjectURL(f))
-    ElMessage.warning('抠图失败，已用原图：' + (ex?.message || ex))
+    // 抠图失败：回到选图页重新选择（画布不留空白卡死）
+    stopFakeProgress()
+    picked.value = false
+    ElMessage.warning('抠图失败：' + (ex?.message || ex) + '，请重新选择')
   }
 }
 
-// 重新选图：按本次进图来源，弹对应入口（拍照→重新拍照，相册→重新选择）
+// 重新选图：按本次进图来源，弹对应入口（拍照→重新拍照，相册→重新选择）；picked 保持 true，画布持续显示
 function rePick() {
   sourceImg.value = null
   angle.value = 0; scale.value = 1; flipX.value = false
@@ -124,13 +143,12 @@ function loadImg(url) {
   const img = new Image()
   img.onload = async () => {
     sourceImg.value = img
-    cutting.value = false
     await nextTick()
     render()
   }
-  // 图片解码失败（文件损坏/HEIC 等非常规格式）：停掉转圈回到选图页，否则会永远卡在"正在抠图"
+  // 图片解码失败（文件损坏/HEIC 等非常规格式）：回到选图页重新选择
   img.onerror = () => {
-    cutting.value = false
+    picked.value = false
     ElMessage.error('图片读取失败，请换一张试试')
   }
   img.src = url
@@ -177,6 +195,7 @@ function dragEnd() { dragX0 = null }
 
 // 画布即成品，直接导出 300×300 白底 JPEG
 function apply() {
+  if (!sourceImg.value) { ElMessage.warning('商品图还没处理好，请稍候或重新选择'); return }
   cv.value.toBlob(b => {
     if (b) emit('done', b)
     else ElMessage.error('图片导出失败，请重试')
@@ -198,8 +217,9 @@ header .t { font-size: 16px; font-weight: bold; }
 .pick .ico { font-size: 26px; }
 .tip { margin: 0; font-size: 12px; color: #a8abb2; text-align: center; }
 .cv { width: 300px; height: 300px; border: 1px solid #e4e7ed; border-radius: 8px; touch-action: none; }
-.cutting { text-align: center; color: #606266; }
-.cutting p { margin-top: 12px; font-size: 13px; }
+.cv-wrap { position: relative; }
+.process { position: absolute; inset: 0; background: rgba(255,255,255,.92); border-radius: 8px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; }
+.process p { margin: 0; font-size: 13px; color: #606266; }
 .tools { padding: 0 16px 12px; }
 .row { margin-bottom: 12px; }
 .row-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px; }

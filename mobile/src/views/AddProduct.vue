@@ -58,7 +58,8 @@ const saving = ref(false)
 const err = ref('')
 
 function onName() {
-  if (!abbr.value) abbr.value = genAbbr(name.value)
+  // 与管理端一致：名称一变就无条件重新生成缩拼（手填的缩拼在改名时会跟随刷新）
+  abbr.value = genAbbr(name.value)
 }
 
 function onImageDone(blob) {

@@ -15,7 +15,7 @@ npm install                 # 用 install.bat 触发也可
 npm run dev:admin           # 管理端 dev（先跑 seed 脚本初始化 dev-data/，再 tauri dev）
 npm run dev:client          # 用户端 dev（vite :14202，连 127.0.0.1）
 npm run dev:mobile          # 手机端 dev（vite :14203，手机浏览器访问 http://本机IP:14203）
-npm test                    # = cargo test 服务端 crate（45 项）
+npm test                    # = cargo test 服务端 crate（52 项）
 npm run pack                # 一键打包 → dist/（先 build:mobile，再编译两端，网页各自内嵌 exe，组装）
 npm run build               # build:mobile + tauri build 两端（仅编译，不组装 dist）
 node scripts/bump-version.js 0.3.0  # 一键改版本号（同步 package.json/tauri.conf.json/Cargo.toml/pack.js 共 9 处）
@@ -61,13 +61,14 @@ client/                   用户端（客户机），绿色单文件
 │  └─ src-tauri/src/lib.rs 用户端壳（读 config.ini → 探测+对时 → 加载内嵌网页）
 │     └─ config.ini       ★ 生产配置模板（打包时复制到 莱尚网电竞馆点购.exe 旁）
 mobile/                   手机端（吧台人员手机浏览器），独立 workspace，非 exe
-│  ├─ src/                App.vue + AddProduct.vue + ImageEditor.vue + bgrem.js（本地抠图）
+│  ├─ src/                App.vue + api.js + bgrem.js（本地抠图）+ pinyin.js + main.js
+│  │  ├─ views/           AddProduct.vue
+│  │  └─ components/      ImageEditor.vue
 │  ├─ public/bgrem/       u2netp.onnx 模型 + onnxruntime wasm（构建后随页面进 web/m/bgrem）
 │  └─ dist/               构建产物（打包时复制为管理端 seed\web\m，运行时托管 /m/）
 assets/                   发布用首启种子（打进管理端安装包 seed\data，★ 不含商品；web/m 另来自 mobile/dist）
 ├─ data/db/shop_db.db     空库（仅表结构 + 系统分类）
-├─ data/image/            空
-├─ data/qrcode/ … sound/  收款码占位 / 播报 wav
+├─ data/qrcode/ … sound/  收款码占位 / 播报 wav（data/image 无种子，首启由 config.rs::ensure_dirs 建空目录）
 └─ dev-seed/              开发测试种子（33 个测试商品 + 3 张图，仅 dev 用）
 dev-data/                 ★ 开发数据（随源码附带，两头共用；含 web/m 手机页；删了用 seed 脚本重建）
 scripts/                  seed-dev-data.js（重置 dev-data + 重建手机页）/ pack.js（一键打包）
@@ -139,7 +140,7 @@ admin/src-tauri/server/src/
 ### 桌面通知卡片（admin/src-tauri/src/lib.rs，Windows 专用）
 
 层叠卡片有一套较绕的窗口机制，涉及多个跨文件约定：
-- 卡片实际总高由前端 `NotifyApp.vue` **按常量推导**（标题 32 + 商品行 26×N + 合计 40 + 按钮 56），**不量 DOM**（避免渲染竞态），然后 `invoke('notify_sync', height)` 告诉 Rust。
+- 卡片实际总高由前端 `NotifyApp.vue` **按常量推导**（标题 32 + 商品行 26×N + 商品区上下 padding 20 + 合计 40 + 按钮 56；商品行最多 6 行 `MAX_ROWS`，超出滚动；呼叫卡多一块大机台号区 64），**不量 DOM**（避免渲染竞态），然后 `invoke('notify_sync', height)` 告诉 Rust。
 - Rust `notify_sync` 据此设窗口尺寸、吸附右下角、显示/隐藏。圆角由**前端 CSS** 实现（窗口本身不透明、圆角外同色深底，不再用 `SetWindowRgn` 裁剪）。
 - 透明区**鼠标穿透**：`spawn_passthrough_polling` 每 50ms 轮询 `GetCursorPos`，光标在卡片区=可点，透明区动态开 `set_ignore_cursor_events`（不能用一次性 WS_EX_TRANSPARENT，否则卡片本身也点不了）。
 - 事件流：服务端 `broadcast` → 壳里事件转发线程 `emit_to("notify", "tf-event", ev)` / `emit_to("main", ...)` → 前端 listen。`notify` 窗口的显示/尺寸由页面量好内容后调 `notify_sync` 完成，壳只订阅不直接控制。
@@ -162,6 +163,6 @@ admin/src-tauri/server/src/
 ## 改动指引
 
 - 加/改 API：先改 `db.rs`（数据层）→ `admin.rs` 或 `server.rs`（路由）→ 前端 `api.js`。注意管理端 API 都在 `admin_router` 的 `localhost_only` 守卫下；公开 API 都在 `server.rs` 的 `protected` 里（会被门禁包住）。
-- 改商品/分类 SQL：`shop_list`/`shop_fl` 字段在图中保留了不少预留列（`gds_bt_count`、`gds_gys`、`gds_js` 等），别当垃圾删，`db.rs` 的 `upsert_product` 依赖它们的默认值。
+- 改商品/分类 SQL：`shop_list`/`shop_fl` 字段在图中保留了不少预留列（`gds_gys`、`gds_js`、`gds_ext_1/2/3` 等），别当垃圾删，`db.rs` 的 `upsert_product` 依赖它们的默认值。（`gds_bt_count`/`gds_ck_count` 是库存预留列，本系统未使用、代码不读取，新库可不建。）
 - 改 UI（用户端）：改 `client/src` 后，dev 用 vite 热重载直接看；生产要重新 `npm run pack`（重新编译用户端 exe）才能在客户机生效。
 - 改手机页（mobile/）：dev 用 `npm run dev:mobile`（:14203）手机看；或跑一次 `node scripts/seed-dev-data.js` 把新页面同步到 `dev-data/web/m`（dev 管理端托管）。生产要重新 `npm run pack`。
