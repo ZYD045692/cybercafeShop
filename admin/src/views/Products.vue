@@ -111,6 +111,15 @@ const kw = ref(''), cls = ref(''), stateFilter = ref('all'), imgT = ref(Date.now
 const editing = ref(false), form = ref({}), preview = ref(''), picBlob = ref(null), err = ref('')
 const catDlg = ref(false), newCat = ref(''), catErr = ref(''), renaming = ref(''), renameTo = ref('')
 const fileInput = ref(null)
+// 手机端二维码：内容为本机局域网 IPv4 + 端口的 /m/ 页面地址，手机扫码直接打开
+const qrImg = ref(''), mobileUrl = ref('')
+async function loadQr() {
+  try {
+    const h = await api('/api/admin/hostinfo')
+    mobileUrl.value = `http://${h.lan_ip}:${PORT}/m/`
+    qrImg.value = await QRCode.toDataURL(mobileUrl.value, { width: 200, margin: 1 })
+  } catch { /* 拿不到局域网 IP 时只隐藏二维码，不影响弹窗其它功能 */ }
+}
 
 const filtered = computed(() => products.value.filter(p =>
   (!cls.value || p.class === cls.value) &&
@@ -225,7 +234,7 @@ async function delCat(name) {
   } catch (ex) { catErr.value = ex.message }
 }
 
-onMounted(reload)
+onMounted(() => { reload(); loadQr() })
 </script>
 
 <style scoped>
@@ -247,7 +256,10 @@ onMounted(reload)
 .mcard.off .pic img { opacity: .35; filter: grayscale(1); }
 .mcard.off .pn { color: #9ca3af; }
 .sw { position: absolute; top: 8px; right: 8px; z-index: 2; }
+.picrow { display: flex; gap: 16px; align-items: stretch; }
 .picbox { width: 120px; height: 120px; border: 1px dashed #d1d5db; border-radius: 8px; display: flex; align-items: center; justify-content: center; cursor: pointer; font-size: 13px; color: #999; text-align: center; overflow: hidden; }
 .picbox img { max-width: 100%; max-height: 100%; object-fit: contain; }
+.qrbox { width: 120px; border: 1px solid #ebeef5; border-radius: 8px; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 6px; box-sizing: border-box; font-size: 13px; color: #999; text-align: center; }
+.qrbox img { width: 84px; height: 84px; }
 .catrow { display: flex; align-items: center; gap: 8px; padding: 8px 0; border-bottom: 1px solid #f0f0f0; font-size: 15px; }
 </style>
