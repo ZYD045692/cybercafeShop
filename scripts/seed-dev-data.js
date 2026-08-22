@@ -9,16 +9,14 @@ const root = path.join(__dirname, '..')
 const assets = path.join(root, 'assets')
 const dst = path.join(root, 'dev-data')
 
-// 手机端页面同步：dev-data/web/m ← mobile/dist（每次跑 seed 都同步，幂等）
+// 手机端页面同步：每次跑 seed 都强制重新构建 mobile/dist 并同步到 dev-data/web/m，
+// 改了 mobile/ 源码直接跑 dev-admin 即可，不用手动 build
 syncMobile()
 function syncMobile() {
   const mobileDist = path.join(root, 'mobile', 'dist')
   const webM = path.join(dst, 'web', 'm')
-  // dist 不在就先构建（用手机页时无需手动单独 build；改 mobile/ 源码后跑一次 build:mobile 即可热更）
-  if (!fs.existsSync(mobileDist)) {
-    console.log('[seed] mobile/dist 不存在，先构建手机端页面（npm run build:mobile）…')
-    execSync('npm run build:mobile', { cwd: root, stdio: 'inherit' })
-  }
+  console.log('[seed] 构建手机端页面（npm run build:mobile）…')
+  execSync('npm run build:mobile', { cwd: root, stdio: 'inherit' })
   fs.rmSync(webM, { recursive: true, force: true })
   fs.mkdirSync(webM, { recursive: true })
   fs.cpSync(mobileDist, webM, { recursive: true })
