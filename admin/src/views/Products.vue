@@ -180,6 +180,8 @@ async function reload() {
 
 function edit(p) {
   err.value = ''; picBlob.value = null
+  // 二维码只在第一次打开弹窗时才生成（延迟加载，避免进入商品页就做 canvas 操作）
+  if (!qrImg.value) loadQr()
   if (p) {
     form.value = { id: p.id, name: p.name, class: p.class, abbr: p.abbr, jhj: p.jhj, price: p.price }
     preview.value = p.pic ? imgUrl(p.pic) + '?t=' + imgT.value : ''
@@ -260,7 +262,7 @@ async function delCat(name) {
   } catch (ex) { catErr.value = ex.message }
 }
 
-onMounted(() => { reload(); loadQr() })
+onMounted(() => { reload() })
 </script>
 
 <style scoped>
