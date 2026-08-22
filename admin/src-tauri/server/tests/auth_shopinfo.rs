@@ -36,7 +36,7 @@ fn new_env_mode(mode: AuthMode, with_web: bool) -> Env {
         "CREATE TABLE shop_fl (id INTEGER PRIMARY KEY, class_name TEXT, class_px INTEGER);
          CREATE TABLE shop_list (
            id INTEGER PRIMARY KEY, gds_number TEXT, gds_class TEXT, gds_name TEXT,
-           gds_bt_count INTEGER, gds_ck_count INTEGER, gds_jhj REAL, gds_xsj REAL,
+           gds_jhj REAL, gds_xsj REAL,
            gds_gys TEXT, gds_pic TEXT, gds_px INTEGER, gds_state INTEGER,
            gds_out INTEGER, gds_js TEXT);
          INSERT INTO shop_fl VALUES (1,'饮料',8);

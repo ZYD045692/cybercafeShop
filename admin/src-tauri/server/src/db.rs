@@ -104,7 +104,6 @@ impl Db {
              CREATE TABLE IF NOT EXISTS shop_list (
                id INTEGER PRIMARY KEY AUTOINCREMENT,
                gds_number TEXT, gds_class TEXT, gds_name TEXT,
-               gds_bt_count INTEGER, gds_ck_count INTEGER,
                gds_jhj INTEGER, gds_xsj INTEGER, gds_gys TEXT,
                gds_pic TEXT, gds_px INTEGER, gds_state INTEGER,
                gds_out INTEGER, gds_js TEXT,
@@ -398,8 +397,8 @@ impl Db {
                     }
                 }
                 conn.execute(
-                    "INSERT INTO shop_list (gds_number,gds_class,gds_name,gds_bt_count,gds_ck_count,gds_jhj,gds_xsj,gds_gys,gds_pic,gds_px,gds_state,gds_out,gds_js)
-                     VALUES (?1,?2,?3,99999999,99999999,?4,?5,'默认',?6,6,1,0,'')",
+                    "INSERT INTO shop_list (gds_number,gds_class,gds_name,gds_jhj,gds_xsj,gds_gys,gds_pic,gds_px,gds_state,gds_out,gds_js)
+                     VALUES (?1,?2,?3,?4,?5,'默认',?6,6,1,0,'')",
                     params![final_abbr, class, name, jhj, price, pic],
                 )
                 .map_err(|e| e.to_string())?;
