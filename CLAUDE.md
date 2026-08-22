@@ -26,9 +26,10 @@ node scripts/bump-version.js 0.3.0  # 一键改版本号（同步 package.json/t
 
 注意：`npm test` 只针对服务端 crate（`--manifest-path admin/src-tauri/server/Cargo.toml`），前端、Tauri 壳、GUI（托盘/通知卡片/穿透/警告框）没有自动化测试，后者靠 Windows 真机人工验证。测试全部用 `tempfile` 临时目录 + `DATA_DIR` 隔离，绝不碰生产/开发数据。
 
-**测试分布（共 45 项，`cargo test` 一次跑完，所有测试都要通过再交）**：
+**测试分布（共 52 项，`cargo test` 一次跑完，所有测试都要通过再交）**：
 - `server/tests/api_adversarial.rs`（29 项）：非法机台名/支付方式/数量、篡改价格、下架商品下单、路径穿越文件名、超大请求体、非本机调管理 API、并发下单销量一致性等对抗性用例。
 - `server/tests/auth_shopinfo.rs`（8 项）：无签名 403、伪造/超窗签名 403、header 与 query 两种签名方式、生产模式本机免票、shopinfo 默认值与修改、缩拼自动生成与回填。
+- `server/tests/mobile_host.rs`（7 项）：手机端分类/建商品/传图全链路、字段校验、缩拼冲突唯一化、图片魔数与大小校验、重传覆盖、hostinfo 返回可用局域网 IP（非链路本地/fake-ip）。
 - `server/src/announce.rs`（4，单测）：`build_playlist` 纯函数（机台名拼字、跳非 ASCII/缺失文件、全中文回退 message.wav、call）。
 - `server/src/auth.rs`（2，单测）：票据往返、与前端 `hmac.js`/Python 对拍的参考向量。
 - `server/src/config.rs`（2，单测）：ini 解析、缺省端口。
@@ -156,6 +157,7 @@ admin/src-tauri/server/src/
 - **管理端首启播种（仅生产，`seed_if_missing`）**：安装包带 `seed/`（空库 + 音频 + 收款码占位 + 手机页，**不含商品**），数据目录缺什么补什么；`data/image`（商品图）首启为空，靠部署时灌「商品数据包」覆盖。`seed/web/m`（手机页）是程序代码不是用户数据：**每次启动整目录覆盖**到 `web/m`，否则升级安装包后旧手机页会一直留着。
 - **打包链**（`scripts/pack.js`）：`build:mobile`（手机页 → `mobile/dist`，tauri 打包时作为 `seed/web/m` 带进管理端安装包）→ tauri build 管理端（NSIS 内嵌管理端 exe+网页+seed）→ tauri build 用户端（网页内嵌 exe）→ 组装 `dist/`。
 - **不要把 package-lock.json 打进源码包**：Linux 生成的 lockfile 在 Windows 会缺平台可选依赖，对方 `npm install` 会报错；源码包内用 `install.bat` 重新生成。（`package-lock.json` 已被 `.gitignore` 忽略，别手动跟踪它。）
+- **Rust 侧禁止用 `Command::new(...).output()` 启动控制台子进程**：release 的 GUI 程序（管理端/用户端 exe）没有控制台，启动 ipconfig/ssh-keygen 这类控制台程序会瞬间弹一个空白控制台窗口再消失（实际表现为「切到某个页面闪一个透明窗」），dev 从命令行跑子进程继承控制台故不弹——这就是典型的「dev 正常、release 异常」。取本机局域网 IP 用 `UdpSocket` 路由法（`admin.rs::lan_ip` 已踩坑改回）；确实要调外部命令时用 `creation_flags(CREATE_NO_WINDOW)`。
 
 ## 改动指引
 
