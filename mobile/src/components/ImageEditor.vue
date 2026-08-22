@@ -101,9 +101,8 @@ async function onFile(e) {
   try {
     const blob = await cutout(f, p => { cutProgress.value = p })
     loadImg(URL.createObjectURL(blob))
-  } catch (ex) {
+  } catch {
     // 抠图失败回退：直接用原图，仅旋转/缩放
-    console.warn('抠图失败，回退原图：', ex)
     loadImg(URL.createObjectURL(f))
     ElMessage.warning('抠图失败，已用原图')
   }

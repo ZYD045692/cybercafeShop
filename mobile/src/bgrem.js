@@ -1,6 +1,4 @@
-// @planby-tech/rmbg-webgpu 封装：浏览器本地抠图，模型+wasm 由吧台机托管（离线可用）。
-// 模型：silueta（U²-Net 同架构的精简版，44MB；输入 320×320，预处理/输出变换与 u2netp 完全一致，
-//       所以沿用库的 u2netp 预设参数，只换模型文件）。边缘质量比 u2netp 更好。
+// @planby-tech/rmbg-webgpu 封装：浏览器本地 U²-Netp 抠图，模型+wasm 由吧台机托管（离线可用）。
 // 强制用 WASM（WebGPU 需要 HTTPS/localhost，手机走 http://吧台IP 是明文 HTTP，不能用 WebGPU）。
 // 成功返回透明 PNG Blob；失败抛异常，由调用方回退到"原图仅旋转/缩放"。
 
@@ -11,8 +9,8 @@ import { removeBackground } from '@planby-tech/rmbg-webgpu'
 // onnxruntime 对 wasmPaths 只做字符串拼接（不补 /），且相对路径会按「当前 JS 模块的 URL」
 // （/m/assets/index-*.js）而不是页面 URL 解析 → 相对写法会拼出 /m/assets/bgremort-xxx 这种 404。
 const BGREM_BASE = new URL('bgrem/', location.href).href
-// 模型 URL：/m/bgrem/silueta.onnx。改这里即换模型，缓存键 = URL，换模型名旧缓存自然失效
-const MODEL_URL = BGREM_BASE + 'silueta.onnx'
+// 模型 URL：/m/bgrem/u2netp.onnx。改这里即换模型，无需改缓存键逻辑
+const MODEL_URL = BGREM_BASE + 'u2netp.onnx'
 
 // IndexedDB：把下载到的模型存起来，下次直接读内存，彻底离线、免重复请求。
 // 键 = 模型 URL，值 = ArrayBuffer（onnxruntime 支持从内存加载模型）。
@@ -81,7 +79,7 @@ export async function cutout(file, onProgress) {
   const model = await loadModel(MODEL_URL)
   onProgress?.(50) // 模型就位，开始抠图
   const blob = await removeBackground(file, {
-    model: 'u2netp',          // silueta 与 u2netp 同架构同预处理（320×320/ImageNet归一化/minmax输出），沿用其预设参数
+    model: 'u2netp',
     modelUrl: model,           // 直接喂内存里的模型，离线可用
     executionProviders: ['wasm'], // 强制 CPU/WASM，局域网 HTTP 下 WebGPU 不可用
     wasmPaths: BGREM_BASE,     // onnxruntime wasm（ort-wasm-simd-threaded.*）所在目录，结尾带 /
