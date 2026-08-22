@@ -10,7 +10,7 @@
         <el-option label="支付宝" value="alipay" />
         <el-option label="现金" value="cash" />
       </el-select>
-      <el-button type="primary" style="margin-left:12px" @click="query">查询</el-button>
+      <el-button type="primary" plain style="margin-left:12px" @click="query">查询</el-button>
       <span class="sum">共 <b>{{ orders.length }}</b> 笔，合计 <b class="money">¥{{ sum.toFixed(1) }}</b></span>
     </div>
     <el-table :data="orders" size="large" empty-text="没有符合条件的记录">

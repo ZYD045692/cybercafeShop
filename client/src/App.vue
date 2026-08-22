@@ -80,7 +80,7 @@
               </div>
             </div>
           </template>
-          <div v-else class="cart-empty">点左边商品加入</div>
+          <div v-else class="cart-empty">点左边商品选购</div>
           <div class="cart-foot">
             <div class="total">
               <span class="label">Total 总金额</span>
@@ -169,8 +169,8 @@ const total = computed(() => cartList.value.reduce((s, i) => s + i.p.price * i.q
 const payName = computed(() => ({ wechat: '微信', alipay: '支付宝' }[pay.value]))
 
 // 居中提示弹窗（软件内，不用系统通知）
-function showMsg(text) {
-  ElMessageBox.alert(text, '提示', {
+function showMsg(text, title = '提示') {
+  ElMessageBox.alert(text, title, {
     confirmButtonText: '确认',
     center: true,
     showClose: false, // 去掉右上角关闭叉号，标题才会水平居中
@@ -201,7 +201,7 @@ function inc(id) { if (cart.value[id].qty < 99) cart.value[id].qty++ }
 function dec(id) { if (--cart.value[id].qty <= 0) delete cart.value[id]; cart.value = { ...cart.value } }
 
 function openConfirm() {
-  if (!count.value) { showMsg('购物车是空的\n先点选您要的商品'); return }
+  if (!count.value) { showMsg('购物车是空的，先点选您要的商品'); return }
   pay.value = 'wechat' // 默认微信
   confirmDlg.value = true
 }
@@ -223,10 +223,10 @@ async function submit() {
     await submitOrder(pay.value, items)
     cart.value = {}
     showMsg(pay.value === 'cash'
-      ? `下单成功！\n请准备好现金 ¥${amount}，吧台收款后给您送货`
-      : '下单成功！\n吧台已收到您的订单，请稍等送货')
-  } catch (e) {
-    showMsg('提交失败：' + e.message + '\n请稍后再试，或直接去吧台购买')
+      ? `请准备好现金 ¥${amount}，吧台稍后给你送货`
+      : '吧台已收到您的订单，请等待送货', '下单成功')
+  } catch {
+    showMsg('请稍后再试，或直接去吧台购买', '提交失败')
   }
 }
 
@@ -304,9 +304,9 @@ input, textarea { user-select: text; -webkit-user-select: text; -moz-user-select
 .bar { height: 60px; flex: none; display: flex; align-items: center; gap: 16px; padding: 0 20px; background: var(--panel); border-bottom: 1px solid var(--line); }
 .brand { display: flex; align-items: baseline; gap: 14px; min-width: 0; }
 .brand h1 { font-size: 18px; font-weight: 700; letter-spacing: .02em; white-space: nowrap; }
-.brand .welcome { font-size: 13px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.brand .welcome { font-size: 16px; font-weight: 600; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .head-right { margin-left: auto; display: flex; align-items: center; gap: 18px; }
-.machine { font-size: 12px; color: var(--muted); }
+.machine { font-size: 15px; color: var(--muted); }
 .machine b { color: var(--text); font-family: ui-monospace, "Cascadia Code", Consolas, monospace; font-weight: 600; letter-spacing: .06em; }
 .callbtn { display: flex; align-items: center; gap: 8px; height: 36px; padding: 0 16px; background: var(--amber); color: #1a1207; border: none; border-radius: 6px; cursor: pointer; font-size: 14px; font-weight: 700; letter-spacing: .04em; transition: filter .15s ease, transform .1s ease; font-family: inherit; }
 .callbtn:hover { filter: brightness(1.1); }
@@ -345,7 +345,7 @@ input, textarea { user-select: text; -webkit-user-select: text; -moz-user-select
 .nopic span { font-size: 13px; letter-spacing: .1em; }
 .pinfo { flex: 1; padding: 10px 12px 12px; border-top: 1px solid var(--line); display: flex; flex-direction: column; gap: 4px; }
 /* 名称占满剩余空间，把价格/销量压到卡片最底部保证各行对齐 */
-.pn { flex: 1; font-size: 16px; font-weight: 600; line-height: 1.4; word-break: break-all; color: var(--text); }
+.pn { flex: 1; font-size: 16px; font-weight: 600; line-height: 1.4; word-break: break-all; color: var(--muted); }
 .meta { display: flex; align-items: baseline; justify-content: space-between; margin-top: 6px; }
 .pp { font-size: 22px; font-weight: 700; color: var(--amber); }
 .pp small { font-size: 14px; font-weight: 400; margin-right: 1px; }
@@ -356,16 +356,17 @@ input, textarea { user-select: text; -webkit-user-select: text; -moz-user-select
 .cart-head { padding: 14px 16px; border-bottom: 1px solid var(--line); display: flex; align-items: center; justify-content: space-between; }
 .cart-head .t { display: flex; align-items: center; gap: 10px; font-size: 15px; font-weight: 700; }
 .cart-head svg { width: 17px; height: 17px; color: var(--amber); }
-.cart-head .n { font-size: 12px; color: var(--amber); }
+.cart-head .n { font-size: 14px; color: var(--amber); font-weight: 600; }
 .cart-cols, .item { display: grid; grid-template-columns: 1fr 64px 84px 64px; align-items: center; gap: 6px; padding: 0 16px; }
 .cart-cols { padding-top: 10px; padding-bottom: 8px; border-bottom: 1px solid var(--line); }
-.cart-cols span { font-size: 11px; letter-spacing: .14em; color: var(--dim); text-transform: uppercase; }
+.cart-cols span { font-size: 13px; letter-spacing: .14em; color: var(--dim); font-weight: 600; text-transform: uppercase; }
 .cart-cols span:nth-child(2), .cart-cols span:nth-child(3), .cart-cols span:nth-child(4) { text-align: right; }
+.cart-cols span:nth-child(3) { text-align: center; }
 .cart-body { flex: 1; overflow-y: auto; }
 .item { padding-top: 12px; padding-bottom: 12px; border-bottom: 1px solid #141d31; }
 .item .name { font-size: 13px; line-height: 1.35; }
-.item .unit { font-size: 12px; color: var(--muted); text-align: right; }
-.item .sub { font-size: 13px; font-weight: 600; color: var(--text); text-align: right; }
+.item .unit { font-size: 13px; color: var(--muted); text-align: right; }
+.item .sub { font-size: 13px; color: var(--text); text-align: right; }
 .qty { display: flex; align-items: center; justify-content: flex-end; gap: 8px; }
 .qty button { width: 22px; height: 22px; border-radius: 5px; border: 1px solid var(--line2); background: transparent; color: var(--muted); cursor: pointer; font-size: 13px; line-height: 1; transition: all .12s ease; }
 .qty button:hover { border-color: var(--amber); color: var(--amber); }
@@ -382,7 +383,7 @@ input, textarea { user-select: text; -webkit-user-select: text; -moz-user-select
 .checkout:disabled { opacity: .45; cursor: not-allowed; }
 /* 重新连接按钮：更宽更醒目 */
 .reconnect { width: 240px; height: 52px; font-size: 17px; }
-.pay-hint { margin-top: 10px; text-align: center; font-size: 11px; color: var(--dim); letter-spacing: .06em; }
+.pay-hint { margin-top: 10px; text-align: center; font-size: 14px; font-weight: 600; color: var(--dim); letter-spacing: .06em; }
 .linkbtn { display: block; width: 100%; margin-top: 8px; background: none; border: none; color: var(--muted); font-size: 13px; cursor: pointer; text-align: center; font-family: inherit; }
 .linkbtn:hover { color: var(--text); }
 
@@ -407,7 +408,7 @@ input, textarea { user-select: text; -webkit-user-select: text; -moz-user-select
 /* 居中提示弹窗（ElMessageBox）dark —— !important 压过 Element Plus 默认 */
 .el-message-box { background: var(--panel) !important; border: 1px solid var(--line) !important; border-radius: 10px !important; }
 .el-message-box__title { color: var(--text) !important; }
-.el-message-box__message { color: var(--text) !important; }
+.el-message-box__message { color: var(--text) !important; white-space: pre-line !important; }
 .el-message-box__btns .el-button--primary { background: var(--amber) !important; border-color: var(--amber) !important; color: #1a1207 !important; }
 /* 连不上吧台 error 状态 */
 .el-result__title { color: var(--text); }

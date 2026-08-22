@@ -6,27 +6,24 @@
         <button class="close" @click="emit('cancel')">✕</button>
       </header>
 
-      <!-- 未选图：管理端在电脑上，只走文件管理器选图（打开组件时已自动弹出文件对话框） -->
-      <div v-if="!sourceImg" class="stage empty">
-        <input ref="fileInput" type="file" accept="image/*" style="display:none" @change="onFile">
+      <!-- 文件选择 input：常驻渲染，空态按钮和「重新选图」rePick 共用 -->
+      <input ref="fileInput" type="file" accept="image/*" style="display:none" @change="onFile">
+
+      <!-- 无初始图：仅异常兜底（正常流程父组件选完图才打开本组件，不会走到这里） -->
+      <div v-if="!initialFile" class="stage empty">
         <button class="pick" @click="fileInput.click()">
           <span class="ico">🖼</span>选择图片文件
         </button>
       </div>
-
-      <!-- 已选图：抠图进度 / 编辑预览 -->
+      <!-- 有图：选完图立即显示画布（空白），抠图完成后再填充 -->
       <div v-else class="stage">
-        <div v-if="cutting" class="cutting">
-          <el-progress type="circle" :percentage="cutProgress" :width="90" />
-          <p>正在抠图，首次加载模型需稍等…</p>
-        </div>
         <!-- 预览画布 = 最终保存的 300×300 白底图，所见即所得 -->
-        <canvas v-else ref="cv" width="300" height="300" class="cv"
+        <canvas ref="cv" width="300" height="300" class="cv"
                 @mousedown="dragStart" @mousemove="dragMove" @mouseup="dragEnd" @mouseleave="dragEnd" />
       </div>
 
-      <!-- 编辑工具栏（有图且非抠图中） -->
-      <template v-if="sourceImg && !cutting">
+      <!-- 编辑工具栏 -->
+      <template v-if="sourceImg">
         <div class="tools">
           <div class="row">
             <div class="row-head">
@@ -57,12 +54,9 @@
         </div>
       </template>
 
-      <footer v-if="sourceImg && !cutting">
+      <footer v-if="sourceImg">
         <el-button @click="emit('cancel')">取消</el-button>
-        <el-button type="primary" @click="apply">应用</el-button>
-      </footer>
-      <footer v-else-if="cutting">
-        <el-button @click="emit('cancel')">取消</el-button>
+        <el-button type="primary" plain @click="apply">应用</el-button>
       </footer>
     </div>
   </div>
@@ -75,10 +69,10 @@ import { ref, nextTick, onMounted } from 'vue'
 import { cutout } from '../bgrem'
 
 const emit = defineEmits(['done', 'cancel'])
+// 管理端：由父组件先选好图再打开本组件（initial-file 直接处理），本组件不再自动弹文件选择框
+const props = defineProps({ initialFile: { type: File, default: null } })
 
-const sourceImg = ref(null)   // 抠图后的透明图（Image 元素）
-const cutting = ref(false)
-const cutProgress = ref(0)
+const sourceImg = ref(null)   // 当前画布显示的图（抠图完成后才有）
 const angle = ref(0)          // 连续角度：-45 ~ +45，用于把歪的商品摆正
 const flipX = ref(false)
 const scale = ref(1)
@@ -86,23 +80,29 @@ const fileInput = ref(null)
 const cv = ref(null)
 
 onMounted(() => {
-  // 打开即弹文件选择框；用户若取消，留在本组件可再点按钮或关闭
-  fileInput.value?.click()
+  // 父组件已选好图：直接处理。若没有（异常兜底）才弹文件框。
+  if (props.initialFile) {
+    processFile(props.initialFile)
+  } else {
+    fileInput.value?.click()
+  }
 })
 
 async function onFile(e) {
   const f = e.target.files[0]
   if (!f) return
   e.target.value = ''
-  cutting.value = true
-  cutProgress.value = 0
+  processFile(f)
+}
+
+// 选完图先显示空白画布（涂白），抠图后台完成后再填充抠好的透明图；失败保留空白并提示
+async function processFile(f) {
+  render() // 立刻画一张空白 300×300 白底
   try {
-    const blob = await cutout(f, p => { cutProgress.value = p })
+    const blob = await cutout(f)
     loadImg(URL.createObjectURL(blob))
   } catch (ex) {
-    // 抠图失败回退：直接用原图，仅旋转/缩放；原因直接弹给用户（没人会去看控制台）
-    loadImg(URL.createObjectURL(f))
-    ElMessage.warning('抠图失败，已用原图：' + (ex?.message || ex))
+    ElMessage.warning('抠图失败：' + (ex?.message || ex) + '，可重新选图或直接填写其他信息')
   }
 }
 
@@ -116,26 +116,24 @@ function loadImg(url) {
   const img = new Image()
   img.onload = async () => {
     sourceImg.value = img
-    cutting.value = false
     await nextTick()
     render()
   }
-  // 图片解码失败（文件损坏/HEIC 等非常规格式）：停掉转圈回到选图页，否则会永远卡在"正在抠图"
-  img.onerror = () => {
-    cutting.value = false
-    ElMessage.error('图片读取失败，请换一张试试')
-  }
+  // 图片解码失败（文件损坏/HEIC 等非常规格式）：提示换一张
+  img.onerror = () => ElMessage.error('图片读取失败，请换一张试试')
   img.src = url
 }
 
 // 把 抠图结果 + 角度/翻转/缩放 合成到 300×300 白底画布（预览即成品）
+// 即便还没图也先把画布涂白 —— 选图后立即显示空白画布，抠图完成再填充
 function render() {
-  const img = sourceImg.value
   const c = cv.value
-  if (!img || !c) return
+  if (!c) return
   const ctx = c.getContext('2d')
   ctx.fillStyle = '#fff'
   ctx.fillRect(0, 0, 300, 300)
+  const img = sourceImg.value
+  if (!img) return
   const rad = angle.value * Math.PI / 180
   // 任意角度都适用：按原图宽高比适配进 290 内框，再乘用户缩放
   const s = Math.min(290 / img.width, 290 / img.height) * scale.value
@@ -168,6 +166,7 @@ function dragEnd() { dragX0 = null }
 
 // 画布即成品，直接导出 300×300 白底 JPEG
 function apply() {
+  if (!sourceImg.value) { ElMessage.warning('商品图还没处理好，请稍候或重新选图'); return }
   cv.value.toBlob(b => {
     if (b) emit('done', b)
     else ElMessage.error('图片导出失败，请重试')

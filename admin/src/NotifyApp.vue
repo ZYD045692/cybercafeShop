@@ -25,7 +25,7 @@
           <span>{{ payName(c.pay) }}</span><span>合计 <b>¥{{ c.total.toFixed(1) }}</b></span>
         </div>
         <div class="ft2">
-          <button class="btn green" @click.stop="ship(c)">{{ c.type === 'call' ? '确认' : '已处理' }}</button>
+          <button class="btn green" @click.stop="ship(c)">{{ c.type === 'call' ? '确认' : '处理' }}</button>
           <button v-if="c.type === 'order'" class="btn gray" @click.stop="dismiss(c)">稍后</button>
         </div>
       </template>

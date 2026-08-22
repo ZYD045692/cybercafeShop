@@ -11,7 +11,7 @@
         <el-radio-button value="off">停止销售</el-radio-button>
       </el-radio-group>
       <el-input v-model="kw" placeholder="输入商品名或缩拼搜索" clearable style="width:200px" />
-      <el-button type="primary" @click="edit(null)">＋ 添加商品</el-button>
+      <el-button type="primary" plain @click="edit(null)">＋ 添加商品</el-button>
       <el-button @click="catDlg = true">分类管理</el-button>
     </div>
     <div class="mgrid" v-loading="loading">
@@ -33,10 +33,11 @@
       <el-form label-width="60px">
         <div class="picline">
           <el-form-item label="图片">
-            <div class="picbox" @click="editorOpen = true">
+            <div class="picbox" @click="fileInput.click()">
               <img v-if="preview" :src="preview">
-              <span v-else>点击选择图片<br><small>自动抠图，裁成 300×300</small></span>
+              <span v-else>点击选择图片</span>
             </div>
+            <input ref="fileInput" type="file" accept="image/*" style="display:none" @change="onFile">
           </el-form-item>
           <el-form-item v-if="qrImg" label="扫码添加商品" label-width="100px">
             <img class="qrimg" :src="qrImg" :title="mobileUrl">
@@ -62,11 +63,11 @@
       </el-form>
       <el-alert v-if="err" :title="err" type="error" :closable="false" style="margin-bottom:10px" />
       <template #footer>
-        <el-button type="primary" @click="save">保存</el-button>
+        <el-button type="primary" plain @click="save">保存</el-button>
         <el-button @click="editing = false">取消</el-button>
         <el-popconfirm v-if="form.id" title="确定删除该商品？" @confirm="del">
           <template #reference>
-            <el-button type="danger" style="float:left">删除</el-button>
+            <el-button type="danger" plain style="float:left">删除</el-button>
           </template>
         </el-popconfirm>
       </template>
@@ -96,8 +97,8 @@
       <el-alert v-if="catErr" :title="catErr" type="error" :closable="false" style="margin-top:10px" />
     </el-dialog>
 
-    <!-- 抠图编辑器（与手机端同一套：打开即弹文件选择框） -->
-    <ImageEditor v-if="editorOpen" @done="onImageDone" @cancel="editorOpen = false" />
+    <!-- 抠图编辑器：先选图，选完再进编辑器（initial-file 直接处理，不再弹选择框） -->
+    <ImageEditor v-if="editorOpen" :initial-file="pendingFile" @done="onImageDone" @cancel="editorOpen = false" />
   </section>
 </template>
 
@@ -112,12 +113,21 @@ const products = ref([]), cats = ref([]), loading = ref(true)
 const kw = ref(''), cls = ref(''), stateFilter = ref('all'), imgT = ref(Date.now())
 const editing = ref(false), form = ref({}), preview = ref(''), picBlob = ref(null), err = ref('')
 const catDlg = ref(false), newCat = ref(''), catErr = ref(''), renaming = ref(''), renameTo = ref('')
-// 抠图编辑器开关：点图片框打开，done 拿到 300×300 JPEG blob
+// 抠图编辑器：点图片框 → 直接弹系统文件选择器 → 选完图再打开编辑器（initial-file 传入），done 拿到 300×300 JPEG blob
 const editorOpen = ref(false)
+const fileInput = ref(null), pendingFile = ref(null)
+function onFile(e) {
+  const f = e.target.files[0]
+  if (!f) return
+  e.target.value = ''
+  pendingFile.value = f
+  editorOpen.value = true
+}
 function onImageDone(blob) {
   picBlob.value = blob
   preview.value = URL.createObjectURL(blob)
   editorOpen.value = false
+  pendingFile.value = null
 }
 // 手机端二维码：内容为本机局域网 IPv4 + 端口的 /m/ 页面地址，手机扫码直接打开
 const qrImg = ref(''), mobileUrl = ref('')
@@ -137,7 +147,7 @@ const filtered = computed(() => products.value.filter(p =>
 // 空状态提示：类别照打（「全部」→「全部商品」，具体分类 →「XX的商品」）；
 // 状态只有「正在销售/停止销售」才打，「全部」不打
 const emptyText = computed(() => {
-  const cat = (cls.value || '全部') + '的商品'
+  const cat = (cls.value || '全部') + '商品'
   const st = { all: '', on: '正在销售', off: '停止销售' }[stateFilter.value] || ''
   return `${cat}${st}中没有符合条件的商品`
 })
@@ -197,6 +207,7 @@ async function save() {
     await post('/api/admin/product', { id: f.id, name: f.name, class: f.class, abbr: f.abbr, jhj: f.jhj, price: f.price, pic })
     editing.value = false
     imgT.value = Date.now()
+    ElMessage.success(f.id ? '商品已更新' : '商品已添加')
     reload()
   } catch (ex) { err.value = ex.message }
 }
@@ -207,7 +218,7 @@ async function toggle(p) {
     reload()
   } catch (e) {
     // 开关绑定的是数据库里的状态，操作失败它会自动弹回原位，不会假装成功
-    ElMessage.error((p.state ? '下架' : '上架') + '失败：' + e.message)
+    ElMessage.error((p.state ? '下架失败' : '上架失败') + '：' + e.message)
   }
 }
 
@@ -216,6 +227,7 @@ async function del() {
   try {
     await delApi(`/api/admin/product/${form.value.id}`)
     editing.value = false
+    ElMessage.success('商品已删除')
     reload()
   } catch (ex) { err.value = ex.message }
 }
@@ -223,18 +235,27 @@ async function del() {
 async function addCat() {
   catErr.value = ''
   if (!newCat.value.trim()) return
-  try { await post('/api/admin/category', { name: newCat.value.trim() }); newCat.value = ''; reload() }
-  catch (ex) { catErr.value = ex.message }
+  try {
+    await post('/api/admin/category', { name: newCat.value.trim() })
+    newCat.value = ''
+    ElMessage.success('分类已添加')
+    reload()
+  } catch (ex) { catErr.value = ex.message }
 }
 async function doRename(old) {
   catErr.value = ''
-  try { await post('/api/admin/category', { name: old, rename_to: renameTo.value.trim() }); renaming.value = ''; reload() }
-  catch (ex) { catErr.value = ex.message }
+  try {
+    await post('/api/admin/category', { name: old, rename_to: renameTo.value.trim() })
+    renaming.value = ''
+    ElMessage.success('分类已改名')
+    reload()
+  } catch (ex) { catErr.value = ex.message }
 }
 async function delCat(name) {
   catErr.value = ''
   try {
     await delApi(`/api/admin/category/${encodeURIComponent(name)}`)
+    ElMessage.success('分类已删除')
     reload()
   } catch (ex) { catErr.value = ex.message }
 }
@@ -249,6 +270,9 @@ onMounted(() => { reload(); loadQr() })
 /* 分类胶囊：用 el-radio-button 的 Element Plus 默认样式，不改外观；
    只设 flex:1 让分类组占满剩余空间，把后面的筛选/搜索/按钮推到右边 */
 .cats { display: inline-flex; flex: 1 1 auto; flex-wrap: wrap; white-space: normal; }
+/* 分类/状态筛选胶囊：激活时去掉实心底色，改主色边框+主色文字（plain 观感）。
+   Element 的激活色走 CSS 变量（--el-radio-button-checked-*），改变量即改激活态。
+   注意要用全局样式 + .pgoods 限定，scoped/:deep 对子组件内部产物匹配不可靠。 */
 .mgrid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 16px; min-height: 200px; }
 .mempty { grid-column: 1/-1; text-align: center; color: #9ca3af; font-size: 15px; padding: 60px 0; }
 .mcard { background: #fff; border-radius: 6px; overflow: hidden; box-shadow: 0 2px 6px rgba(0,0,0,.12); position: relative; }
