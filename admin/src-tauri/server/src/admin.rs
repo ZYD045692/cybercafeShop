@@ -373,7 +373,9 @@ fn lan_ip() -> String {
             if let Ok(local) = udp.local_addr() {
                 let ip = local.ip();
                 let s = ip.to_string();
-                if ip.is_ipv4() && !ip.is_loopback() && !s.starts_with("198.18.") && !s.starts_with("198.19.") {
+                // 排除回环、代理 fake-ip（198.18/19）、链路本地（169.254，表示网卡根本没拿到地址，手机扫了也连不上）
+                if ip.is_ipv4() && !ip.is_loopback()
+                    && !s.starts_with("198.18.") && !s.starts_with("198.19.") && !s.starts_with("169.254.") {
                     return s;
                 }
             }
