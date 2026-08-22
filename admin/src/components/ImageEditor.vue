@@ -146,6 +146,7 @@ async function processFile(f) {
   downloadProgress.value = 0
   try {
     const blob = await cutout(f, ev => {
+      if (unmounted) return // 组件已卸载，忽略后续进度（否则卸载后仍会 startProcessProgress，启动无人清理的定时器）
       if (ev.stage === 'download') {
         // 仅首次无缓存才走到这里：显示「下载模型」真实进度
         downloading.value = true

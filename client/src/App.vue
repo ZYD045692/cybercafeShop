@@ -43,7 +43,7 @@
         <div class="kgrid">
           <div v-for="p in shown" :key="p.id" class="pcard" @click="add(p)">
             <div class="picwrap">
-              <img v-if="p.pic" :src="imgUrl(p.pic)" loading="lazy">
+              <img v-if="p.pic" :src="imgUrl(p.pic)" :data-pic="p.pic" loading="lazy" @error="onImgError">
               <span v-else class="nopic"><b class="abbr">{{ p.name.slice(0, 3) }}</b><span>暂无图片</span></span>
             </div>
             <div class="pinfo">
@@ -190,6 +190,15 @@ async function init() {
   } catch {
     loadErr.value = true
   }
+}
+
+// 商品图加载失败（多为页面闲置超 5 分钟、签名票据过期被 403）：用新票据重新请求一次，
+// 保证懒加载的图不至于停久了往下翻就破图（带时间戳破缓存，防止命中旧的 403 响应）。
+function onImgError(e) {
+  const t = e.target
+  if (!t.dataset.pic || t.dataset.retried) return // 已重试过或非商品图，避免死循环
+  t.dataset.retried = '1'
+  t.src = imgUrl(t.dataset.pic) + '&r=' + Date.now()
 }
 
 function add(p) {
