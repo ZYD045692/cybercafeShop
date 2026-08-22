@@ -6,11 +6,18 @@
         <button class="close" @click="emit('cancel')">✕</button>
       </header>
 
+      <!-- 抠图中：转圈等待（先于空态判断，避免重选时闪出选图页） -->
+      <div v-if="cutting" class="stage">
+        <div class="cutting">
+          <el-progress type="circle" :percentage="cutProgress" :width="90" />
+          <p>正在抠图，首次加载模型需稍等…</p>
+        </div>
+      </div>
       <!-- 未选图：拍照 或 从相册选择 -->
-      <div v-if="!sourceImg" class="stage empty">
+      <div v-else-if="!sourceImg" class="stage empty">
         <!-- capture="environment"：手机浏览器直接调起后置摄像头；不带 capture 的走相册/文件 -->
-        <input ref="cameraInput" type="file" accept="image/*" capture="environment" style="display:none" @change="onFile">
-        <input ref="fileInput" type="file" accept="image/*" style="display:none" @change="onFile">
+        <input ref="cameraInput" type="file" accept="image/*" capture="environment" style="display:none" @change="onFile($event,'camera')">
+        <input ref="fileInput" type="file" accept="image/*" style="display:none" @change="onFile($event,'gallery')">
         <div class="pick-btns">
           <button class="pick" @click="cameraInput.click()">
             <span class="ico">📷</span>拍照
@@ -21,15 +28,10 @@
         </div>
         <p class="tip">建议把商品放在干净背景上拍摄，抠图效果更好</p>
       </div>
-
-      <!-- 已选图：抠图进度 / 编辑预览 -->
+      <!-- 已选图且非抠图中：编辑预览 -->
       <div v-else class="stage">
-        <div v-if="cutting" class="cutting">
-          <el-progress type="circle" :percentage="cutProgress" :width="90" />
-          <p>正在抠图，首次加载模型需稍等…</p>
-        </div>
         <!-- 预览画布 = 最终保存的 300×300 白底图，所见即所得 -->
-        <canvas v-else ref="cv" width="300" height="300" class="cv"
+        <canvas ref="cv" width="300" height="300" class="cv"
                 @mousedown="dragStart" @mousemove="dragMove" @mouseup="dragEnd" @mouseleave="dragEnd"
                 @touchstart.passive="dragStart" @touchmove.prevent="dragMove" @touchend="dragEnd" />
       </div>
@@ -59,6 +61,7 @@
           </div>
           <div class="nudge">
             <button @click="flipX = !flipX; render()">⇋ 水平翻转</button>
+            <button @click="rePick">{{ enterFrom === 'camera' ? '重新拍照' : '重新选择' }}</button>
             <button @click="resetAll">重置</button>
           </div>
           <p class="tip">也可以直接在图片上左右拖动来旋转</p>
@@ -67,7 +70,7 @@
 
       <footer v-if="sourceImg && !cutting">
         <el-button @click="emit('cancel')">取消</el-button>
-        <el-button type="primary" @click="apply">应用</el-button>
+        <el-button type="primary" plain @click="apply">应用</el-button>
       </footer>
       <footer v-if="cutting">
         <el-button @click="emit('cancel')">取消</el-button>
@@ -91,11 +94,13 @@ const scale = ref(1)
 const fileInput = ref(null)
 const cameraInput = ref(null)
 const cv = ref(null)
+const enterFrom = ref('gallery') // 记录本次进图来源：camera=拍照 / gallery=相册，重选时据此弹对应入口
 
-async function onFile(e) {
+async function onFile(e, src = 'gallery') {
   const f = e.target.files[0]
   if (!f) return
   e.target.value = ''
+  enterFrom.value = src
   cutting.value = true
   cutProgress.value = 0
   try {
@@ -106,6 +111,13 @@ async function onFile(e) {
     loadImg(URL.createObjectURL(f))
     ElMessage.warning('抠图失败，已用原图：' + (ex?.message || ex))
   }
+}
+
+// 重新选图：按本次进图来源，弹对应入口（拍照→重新拍照，相册→重新选择）
+function rePick() {
+  sourceImg.value = null
+  angle.value = 0; scale.value = 1; flipX.value = false
+  nextTick(() => (enterFrom.value === 'camera' ? cameraInput : fileInput).value?.click())
 }
 
 function loadImg(url) {

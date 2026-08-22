@@ -127,7 +127,9 @@ onMounted(async () => {
 header { display: flex; align-items: center; justify-content: space-between; padding: 14px 16px; background: #fff; border-bottom: 1px solid #f0f0f0; }
 header .t { font-size: 18px; font-weight: bold; }
 .form { padding: 16px; }
-.imgbox { width: 100%; aspect-ratio: 1/1; border: 1px dashed #d9d9d9; border-radius: 8px; display: flex; align-items: center; justify-content: center; cursor: pointer; color: #909399; font-size: 15px; text-align: center; background: #fafafa; margin-bottom: 16px; overflow: hidden; }
+/* 行与行之间：Element large 默认 22px，这里收紧到 8px */
+.form :deep(.el-form-item) { margin-bottom: 8px; }
+.imgbox { width: 80%; margin: 0 auto 16px; aspect-ratio: 1/1; border: 1px dashed #d9d9d9; border-radius: 8px; display: flex; align-items: center; justify-content: center; cursor: pointer; color: #909399; font-size: 15px; text-align: center; background: #fafafa; overflow: hidden; }
 .imgbox img { width: 100%; height: 100%; object-fit: contain; }
 .price-row { display: flex; align-items: center; gap: 8px; width: 100%; }
 .sep { color: #909399; font-size: 13px; }
