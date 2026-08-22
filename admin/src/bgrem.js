@@ -3,8 +3,11 @@
 // （服务端 CorsLayer::permissive()，跨源 fetch 没问题），全系统只存一份模型。
 // 缓存同样走 IndexedDB（键 = 模型 URL，换模型文件名旧缓存自然失效）。
 // ★ 换模型时：mobile/src/bgrem.js 的 MODEL_URL 和这里要一起改。
+//
+// 抠图放在一次性 Web Worker（bgrem-worker.js）里跑、用完 terminate：
+// onnxruntime 的 WASM 堆只 grow 不 shrink，dispose() 拿不回内存，唯有销毁 worker 才能整体归还 OS，
+// 避免管理端 24h 常驻时抠图一次就永久占用 200MB。本文件不 import rmbg，它只在 worker 里加载。
 
-import { RmbgSession } from '@planby-tech/rmbg-webgpu'
 import { API } from './api'
 
 const BGREM_BASE = `${API}/m/bgrem/`   // 吧台机 HTTP 服务托管的手机端资源目录
@@ -75,38 +78,28 @@ async function loadModel(url, onProgress) {
 
 /**
  * 抠图：返回透明背景 PNG Blob。失败抛异常，调用方处理。
- * 回调 onProgress({stage})：download（首次下载模型，带 percent 0~100）/ image（开始处理图片）/ done（完成）。
+ * 回调 onProgress({stage})：download（首次下载模型，带 percent 0~100）/ image（开始处理图片）。
  * 模型有缓存时直接读 IndexedDB（不报 download 阶段），无缓存才下载并缓存。
- * 该库无内建进度回调，处理图片阶段由调用方模拟进度。
+ * 抠图在一次性 Worker 里执行，拿到结果即 terminate，释放 onnxruntime 的 WASM 堆（处理进度由调用方模拟）。
  * @param {File} file 原图
  * @param {(e:{stage:string,percent?:number})=>void} onProgress
  */
-let session = null // 复用的抠图 session：组件生命周期内只建一次，卸载时 disposeBgrem 释放
-
-/** 取 session（惰性单例）：首次创建时下载/加载模型并建 session，之后反复抠图复用，不再新建（避免 WASM 内存反复增长） */
-async function getSession(onProgress) {
-  if (session) return session
+export async function cutout(file, onProgress) {
   const { buf, source } = await loadModel(MODEL_URL, p => onProgress?.({ stage: 'download', percent: p }))
   if (source === 'network') onProgress?.({ stage: 'download', percent: 100 }) // 下载完成
-  session = await RmbgSession.create({
-    model: 'u2netp',              // 预设参数（320×320 / ImageNet 归一化 / minmax 输出）
-    modelUrl: buf,                // 模型本体从 IndexedDB / /m/bgrem/ 拿
-    executionProviders: ['wasm'], // 与手机端一致，强制 WASM
-    wasmPaths: BGREM_BASE,        // wasm 也从手机端目录加载（结尾带 /）
+  onProgress?.({ stage: 'image' }) // 模型就位，开始抠图
+  return await new Promise((resolve, reject) => {
+    const worker = new Worker(new URL('./bgrem-worker.js', import.meta.url), { type: 'module' })
+    worker.onmessage = (e) => {
+      worker.terminate() // 抠完立刻销毁 worker，WASM 堆整体归还 OS
+      if (e.data?.ok) resolve(e.data.blob)
+      else reject(new Error(e.data?.message || '抠图失败'))
+    }
+    worker.onerror = (e) => {
+      worker.terminate()
+      reject(new Error(e.message || '抠图 Worker 异常'))
+    }
+    // transfer 模型 ArrayBuffer 给 worker，主线程不再持有（避免双份拷贝）
+    worker.postMessage({ model: buf, wasmPaths: BGREM_BASE, image: file }, [buf])
   })
-  return session
-}
-
-/** 组件卸载时调用：释放复用的模型 session（onnxruntime 的 WASM 堆随后由 GC 回收） */
-export async function disposeBgrem() {
-  const s = session
-  session = null
-  if (s) await s.dispose().catch(() => {})
-}
-
-export async function cutout(file, onProgress) {
-  const s = await getSession(onProgress) // 首次含下载进度；之后复用不再走 download 阶段
-  onProgress?.({ stage: 'image' }) // 开始处理图片
-  const res = await s.remove(file)
-  return res.outputBlob
 }

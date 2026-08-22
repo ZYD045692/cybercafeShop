@@ -103,11 +103,13 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, watch, onBeforeUnmount } from 'vue'
+import { ref, computed, onMounted, watch, onBeforeUnmount, defineAsyncComponent } from 'vue'
 import { pinyin } from 'pinyin-pro'
 import QRCode from 'qrcode'
 import { api, post, del as delApi, upload, imgUrl, PORT } from '../api'
-import ImageEditor from '../components/ImageEditor.vue'
+// 抠图编辑器懒加载：其内部会连带加载 @planby-tech/rmbg-webgpu（含 onnxruntime-web），
+// 拆成异步 chunk 后不进主 bundle，首次点开才加载，降低管理端常驻内存基线
+const ImageEditor = defineAsyncComponent(() => import('../components/ImageEditor.vue'))
 
 const products = ref([]), cats = ref([]), loading = ref(true)
 const kw = ref(''), cls = ref(''), stateFilter = ref('all'), imgT = ref(Date.now())

@@ -51,6 +51,9 @@ admin/                    管理端（吧台主机），安装版 NSIS
 │  ├─ App.vue             主界面（订单/商品/销售/设置 + 待处理角标）
 │  ├─ NotifyApp.vue       通知卡片页（独立页面 notify.html）
 │  ├─ api.js              前端 → 本机 HTTP API 封装（走 127.0.0.1）
+│  ├─ bgrem.js            抠图入口：模型缓存/下载 + 一次性 Worker 调度（不 import rmbg）
+│  ├─ bgrem-worker.js     抠图 Worker：RmbgSession 在 worker 里跑，用完 terminate 释放 WASM 堆
+│  ├─ components/          ImageEditor.vue（抠图编辑器，两端同一套交互）
 │  └─ views/               Orders / Products / Records / Settings
 ├─ index.html / notify.html  MPA 两个入口
 └─ src-tauri/
@@ -167,4 +170,4 @@ admin/src-tauri/server/src/
 - 改 UI（用户端）：改 `client/src` 后，dev 用 vite 热重载直接看；生产要重新 `npm run pack`（重新编译用户端 exe）才能在客户机生效。
 - 改手机页（mobile/）：dev 用 `npm run dev:mobile`（:14203）手机看；或跑一次 `node scripts/seed-dev-data.js` 把新页面同步到 `dev-data/web/m`（dev 管理端托管）。生产要重新 `npm run pack`。
 - **两端图片编辑器是同一套交互**（`admin/src/components/ImageEditor.vue` 与 `mobile/src/components/ImageEditor.vue`），改一处必须同步另一处。共同点：选图→空白画布→两个独立进度条（「下载模型」仅首次无缓存时出现、用 `bgrem.js::loadModel` 报的真实 fetch 进度；「处理图片」用 `startProcessProgress`/`stopProcessProgress` 定时器模拟，90% 封顶完成跳 100）→抠图填充→旋转/缩放/翻转→应用导出 300×300；处理中「应用」有守卫。差异仅：手机端多拍照入口（`cameraInput`/`enterFrom`）、失败回选图页、触摸事件；管理端失败留空白画布。缩拼生成两端一致（名称变化无条件重算，见 `Products.vue::watch(name)` 与 `AddProduct.vue::onName`）。
-- **管理端常驻运行，图片编辑的内存清理是硬约束**（吧台机 24h 跑，泄漏会累积）：① `el-dialog` 必须 `destroy-on-close`，否则关闭弹窗内容不销毁、ImageEditor 不卸载 → session 泄漏；② ImageEditor `onUnmounted` 释放模型 session（`disposeBgrem`）、停假进度定时器、revoke blob URL；③ `URL.createObjectURL` 创建的 blob URL 换图/卸载时 revoke（Products 的 `previewBlobUrl`、ImageEditor 的 `imgBlobUrl`）；④ `bgrem.js` 的抠图 session 是惰性单例（`getSession` 只建一次、复用，`disposeBgrem` 释放）。
+- **管理端常驻运行，图片编辑的内存清理是硬约束**（吧台机 24h 跑，泄漏会累积）：① `el-dialog` 必须 `destroy-on-close`，否则关闭弹窗内容不销毁、ImageEditor 不卸载；② **抠图放一次性 Web Worker**（`bgrem.js` 调度 + `bgrem-worker.js` 执行），用完 `worker.terminate()` —— onnxruntime 的 WASM 堆只 grow 不 shrink，`dispose()` 拿不回内存，唯有销毁 worker 才能把 ~200MB 整体归还 OS；③ ImageEditor `onUnmounted` 清假进度定时器、revoke blob URL、置 `unmounted` 守卫（异步 `cutout` 返回后若组件已卸载则丢弃结果、不再 `createObjectURL`，防中途取消泄漏 blob）；④ `URL.createObjectURL` 创建的 blob URL 换图/卸载时 revoke（Products 的 `previewBlobUrl`、ImageEditor 的 `imgBlobUrl`）；⑤ `bgrem.js` 不 import rmbg、`Products.vue` 的 ImageEditor 用 `defineAsyncComponent` 懒加载，onnxruntime-web（约 1MB JS）不进主 bundle、首次抠图才加载。手机端不受影响（短时页面，关标签页即回收，仍走每次 `cutout` `finally` dispose）。

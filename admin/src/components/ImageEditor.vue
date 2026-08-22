@@ -79,7 +79,7 @@
 // 与手机端 mobile/src/components/ImageEditor.vue 同一套交互，
 // 差异：管理端没有摄像头，打开组件即弹出文件管理器选图（onMounted 自动 click）。
 import { ref, nextTick, onMounted, onUnmounted } from 'vue'
-import { cutout, disposeBgrem } from '../bgrem'
+import { cutout } from '../bgrem'
 
 const emit = defineEmits(['done', 'cancel'])
 // 管理端：由父组件先选好图再打开本组件（initial-file 直接处理），本组件不再自动弹文件选择框
@@ -98,6 +98,7 @@ const processProgress = ref(0)   // 处理图片假进度 0~100
 
 let processTimer = null
 let imgBlobUrl = '' // 当前预览图的 blob URL（loadImg 传入），换图/卸载时 revoke 防泄漏
+let unmounted = false // 组件已卸载标记：异步 cutout 返回后丢弃结果，避免卸载后才 createObjectURL 泄漏 blob
 // 处理图片阶段假进度：抠图库无真实进度回调，用定时器平滑爬升到 90% 封顶，真正完成时跳到 100。
 // 下载模型阶段用 bgrem.js 报的真实 fetch 进度，不在这里模拟。
 function startProcessProgress() {
@@ -114,11 +115,12 @@ function stopProcessProgress() {
   processing.value = false
 }
 
-// 卸载时释放：停掉假进度定时器 + revoke blob URL + 释放模型 session（避免管理端常驻时内存泄漏）
+// 卸载时释放：停掉假进度定时器 + revoke blob URL。抠图模型在 bgrem.js 的一次性 Worker 里、
+// 用完即 terminate，无需在此 dispose（避免管理端常驻时内存泄漏）
 onUnmounted(() => {
+  unmounted = true
   clearInterval(processTimer)
   if (imgBlobUrl) { URL.revokeObjectURL(imgBlobUrl); imgBlobUrl = '' }
-  disposeBgrem()
 })
 
 onMounted(() => {
@@ -155,9 +157,11 @@ async function processFile(f) {
         startProcessProgress()
       }
     })
+    if (unmounted) return // 抠图期间组件被关（点取消），丢弃结果，不再 createObjectURL
     stopProcessProgress()
     loadImg(URL.createObjectURL(blob))
   } catch (ex) {
+    if (unmounted) return
     stopProcessProgress()
     downloading.value = false
     ElMessage.warning('抠图失败：' + (ex?.message || ex) + '，可重新选图或直接填写其他信息')
@@ -175,12 +179,13 @@ function loadImg(url) {
   imgBlobUrl = url.startsWith('blob:') ? url : ''
   const img = new Image()
   img.onload = async () => {
+    if (unmounted) return
     sourceImg.value = img
     await nextTick()
     render()
   }
   // 图片解码失败（文件损坏/HEIC 等非常规格式）：提示换一张
-  img.onerror = () => ElMessage.error('图片读取失败，请换一张试试')
+  img.onerror = () => { if (!unmounted) ElMessage.error('图片读取失败，请换一张试试') }
   img.src = url
 }
 
