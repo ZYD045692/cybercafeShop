@@ -126,7 +126,20 @@ pub struct ProductIn {
 
 async fn admin_products(State(ctx): State<Arc<AdminCtx>>) -> (StatusCode, Json<Value>) {
     match ctx.db.admin_products() {
-        Ok(v) => (StatusCode::OK, Json(json!({"ok":true,"products":v}))),
+        Ok(v) => {
+            // pic_t：图片文件 mtime 作 URL 版本号（前端 ?t= 用它，不随启动/切页变，磁盘缓存可命中）
+            let arr: Vec<Value> = v
+                .into_iter()
+                .map(|p| {
+                    json!({
+                        "id": p.id, "name": p.name, "class": p.class, "abbr": p.abbr,
+                        "jhj": p.jhj, "price": p.price, "pic": p.pic, "sold": p.sold,
+                        "state": p.state, "pic_t": crate::server::pic_mtime(&ctx.image_dir, &p.pic),
+                    })
+                })
+                .collect();
+            (StatusCode::OK, Json(json!({"ok": true, "products": arr})))
+        }
         Err(e) => err(StatusCode::INTERNAL_SERVER_ERROR, &e),
     }
 }

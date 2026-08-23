@@ -5,7 +5,7 @@ use crate::config::AppDirs;
 use crate::db::{Db, OrderItemIn, OrderSummary};
 use axum::body::Body;
 use axum::extract::{DefaultBodyLimit, Path, State};
-use axum::http::{header, StatusCode};
+use axum::http::{header, HeaderMap, StatusCode};
 use axum::response::Response;
 use axum::routing::{get, post};
 use axum::{Json, Router};
@@ -79,7 +79,20 @@ async fn shopinfo(State(st): State<Arc<AppState>>) -> (StatusCode, Json<Value>) 
 
 async fn products(State(st): State<Arc<AppState>>) -> (StatusCode, Json<Value>) {
     match (st.db.categories(), st.db.products_on_sale()) {
-        (Ok(c), Ok(p)) => (StatusCode::OK, Json(json!({ "ok": true, "categories": c, "products": p }))),
+        (Ok(c), Ok(p)) => {
+            // pic_t：图片文件 mtime 作 URL 版本号（用户端不用也会带上，保持两端 JSON 结构一致）
+            let products: Vec<Value> = p
+                .into_iter()
+                .map(|x| {
+                    json!({
+                        "id": x.id, "name": x.name, "class": x.class, "abbr": x.abbr,
+                        "price": x.price, "pic": x.pic, "sold": x.sold,
+                        "pic_t": pic_mtime(&st.dirs.image_dir(), &x.pic),
+                    })
+                })
+                .collect();
+            (StatusCode::OK, Json(json!({ "ok": true, "categories": c, "products": products })))
+        }
         _ => err(StatusCode::INTERNAL_SERVER_ERROR, "读取商品失败"),
     }
 }
@@ -125,7 +138,23 @@ pub fn valid_filename(name: &str) -> bool {
         && name.chars().all(|c| c.is_ascii_alphanumeric() || c == '.' || c == '_' || c == '-')
 }
 
-async fn serve_file(dir: &std::path::Path, name: &str) -> Response {
+/// 图片文件 mtime（Unix 秒）作为 URL 版本号（pic_t）。
+/// 前端 `?t=<pic_t>`：文件不变则 URL 跨启动/跨切页稳定 → WebView2 磁盘缓存可命中；
+/// 管理端/手机端重传图片后 mtime 变 → 新 URL → 各端自动拿新图，不依赖客户端时钟。
+/// 文件缺失/stat 失败 → 0（URL 退化为 ?t=0，请求仍走正常 200/404 流程）。
+pub fn pic_mtime(dir: &std::path::Path, name: &str) -> i64 {
+    if name.is_empty() {
+        return 0;
+    }
+    std::fs::metadata(dir.join(name))
+        .and_then(|m| m.modified())
+        .ok()
+        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or(0)
+}
+
+async fn serve_file(dir: &std::path::Path, name: &str, headers: &HeaderMap) -> Response {
     if !valid_filename(name) {
         return Response::builder()
             .status(StatusCode::BAD_REQUEST)
@@ -133,12 +162,30 @@ async fn serve_file(dir: &std::path::Path, name: &str) -> Response {
             .unwrap();
     }
     let path = dir.join(name);
+    // ETag = 文件 mtime（hex）：URL 稳定时浏览器带 If-None-Match，未变 → 304 不读盘不传输
+    let etag = format!("\"{:x}\"", pic_mtime(dir, name));
+    if headers
+        .get(header::IF_NONE_MATCH)
+        .and_then(|v| v.to_str().ok())
+        == Some(etag.as_str())
+    {
+        return Response::builder()
+            .status(StatusCode::NOT_MODIFIED)
+            .header(header::ETAG, &etag)
+            .header(header::CACHE_CONTROL, "no-cache")
+            .body(Body::empty())
+            .unwrap();
+    }
     match std::fs::read(&path) {
         Ok(bytes) => {
             let mime = mime_guess::from_path(&path).first_or_octet_stream();
             Response::builder()
                 .status(StatusCode::OK)
                 .header(header::CONTENT_TYPE, mime.as_ref())
+                .header(header::ETAG, &etag)
+                // no-cache：每次使用先 revalidate——上传新图（mtime 变）后所有端自动拿到新图，
+                // 同时保证磁盘缓存不存死数据
+                .header(header::CACHE_CONTROL, "no-cache")
                 .body(Body::from(bytes))
                 .unwrap()
         }
@@ -149,11 +196,11 @@ async fn serve_file(dir: &std::path::Path, name: &str) -> Response {
     }
 }
 
-async fn image(State(st): State<Arc<AppState>>, Path(name): Path<String>) -> Response {
-    serve_file(&st.dirs.image_dir(), &name).await
+async fn image(State(st): State<Arc<AppState>>, Path(name): Path<String>, headers: HeaderMap) -> Response {
+    serve_file(&st.dirs.image_dir(), &name, &headers).await
 }
 
-async fn qrcode(State(st): State<Arc<AppState>>, Path(kind): Path<String>) -> Response {
+async fn qrcode(State(st): State<Arc<AppState>>, Path(kind): Path<String>, headers: HeaderMap) -> Response {
     let file = match kind.as_str() {
         "wechat" => "wechat.png",
         "alipay" => "alipay.png",
@@ -164,7 +211,7 @@ async fn qrcode(State(st): State<Arc<AppState>>, Path(kind): Path<String>) -> Re
                 .unwrap()
         }
     };
-    serve_file(&st.dirs.qrcode_dir(), file).await
+    serve_file(&st.dirs.qrcode_dir(), file, &headers).await
 }
 
 pub fn router(st: Arc<AppState>) -> Router {
@@ -194,7 +241,7 @@ pub fn router(st: Arc<AppState>) -> Router {
             st.clone(),
             crate::auth::require_ticket,
         ))
-        .layer(DefaultBodyLimit::max(64 * 1024)) // 请求体上限 64KB
+        .layer(DefaultBodyLimit::max(1000 * 1024)) // 请求体上限 1MB（超限会提前拒收并中止未读完的请求体）
         .with_state(st.clone());
     Router::new()
         .route("/api/ping", get(ping)) // 存活探测+对时，不加密（不暴露任何业务数据）

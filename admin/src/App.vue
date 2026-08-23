@@ -35,12 +35,20 @@ const ordersRef = ref(null)
 onMounted(async () => {
   // 新订单/呼叫 → 刷新订单列表和角标
   await listen('tf-event', () => ordersRef.value?.reload())
+  // 复制限制（与用户端一致）：屏蔽右键菜单 + 复制/剪切/全选 事件
+  document.addEventListener('contextmenu', e => e.preventDefault())
+  document.addEventListener('copy', e => e.preventDefault())
+  document.addEventListener('cut', e => e.preventDefault())
+  document.addEventListener('selectstart', e => e.preventDefault())
 })
 </script>
 
 <style>
 * { margin: 0; padding: 0; box-sizing: border-box; }
 body { background: #f0f2f5; font-family: "Microsoft YaHei", sans-serif; }
+/* 复制限制（与用户端一致）：禁止选中文字（弹窗/弹层继承）；输入框保留可编辑 */
+body { user-select: none; -webkit-user-select: none; -moz-user-select: none; }
+input, textarea { user-select: text; -webkit-user-select: text; -moz-user-select: text; }
 /* 隐藏所有滚动条但保留滚动（原生 + Element Plus 自定义滚动条） */
 * { scrollbar-width: none; -ms-overflow-style: none; }
 *::-webkit-scrollbar { width: 0; height: 0; display: none; -webkit-appearance: none; }

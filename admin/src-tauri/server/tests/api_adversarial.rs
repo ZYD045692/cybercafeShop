@@ -342,9 +342,19 @@ fn t18_malformed_json_rejected() {
 #[test]
 fn t19_oversized_body_rejected() {
     let env = TestEnv::new("A");
-    let big = json!({"machine":"A".repeat(200_000),"pay_method":"wechat","items":[{"id":1,"qty":1}]});
-    let (code, _) = post_json(&env.url("/api/order"), big);
-    assert_eq!(code, 413, "超过 64KB 请求体应 413，实际 {code}");
+    // 2MB 请求体，大于公开 API 的 1MB 上限：服务器必须拒收。
+    // 超限时 axum 提前回 413 并中止未读完的请求体——Windows 上常见表现为上传连接被
+    // 中止（os error 10053，客户端拿不到状态码）。"完整收到 413"与"连接被中止"
+    // 都是服务器拒收的正当形态，两类都算通过；唯有真成功（200/落库）才算失败。
+    let big = json!({"machine":"A".repeat(2_000_000),"pay_method":"wechat","items":[{"id":1,"qty":1}]});
+    let r = ureq::post(&env.url("/api/order"))
+        .set("Content-Type", "application/json")
+        .send_string(&big.to_string());
+    match r {
+        Ok(resp) => assert_eq!(resp.status(), 413, "超限请求体应 413，实际 {}", resp.status()),
+        Err(ureq::Error::Status(code, _)) => assert_eq!(code, 413),
+        Err(_) => {} // 传输中止 = 服务器拒收（未处理）
+    }
     assert_eq!(get(&env.url("/api/ping")).0, 200);
 }
 

@@ -49,7 +49,9 @@ import { upload, to300, post, api, PORT, API } from '../api'
 
 const autostart = ref(false), port = PORT
 const shopName = ref(''), welcomeText = ref('')
-const qrT = ref(Date.now())
+// 收款码 URL 版本号：初始 0（URL 稳定 → WebView2 磁盘缓存可命中；服务端 no-cache 保证
+// 每次使用先验证，换过图自动拿新图）；只有本机上传成功才换新值强制刷新显示
+const qrT = ref(0)
 const qrInputs = ref({})
 const qrSrc = k => `${API}/qrcode/${k}?t=${qrT.value}`
 

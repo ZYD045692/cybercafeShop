@@ -79,6 +79,40 @@ fn copy_dir(src: &std::path::Path, dst: &std::path::Path) {
     }
 }
 
+/// 设置 webview 的 WebView2 内存目标级（Windows）：
+/// Low = 主动收缩缓存/换出页面内存（窗口隐藏时用）；Normal = 恢复默认。
+/// 不暂停 JS 定时器（区别于 TrySuspend），托盘期间轮询/事件推送、订单播报链不受影响。
+/// 需要 WebView2 Runtime ≥ 114.0.1823.32，旧运行时调用静默无效（不报错、无风险）。
+/// 取法说明：tauri 的 PlatformWebview 在 Windows 只暴露 controller()，走 webview2-com 调
+/// ICoreWebView2_19::SetMemoryUsageTargetLevel——与 wry 0.55.1 自身的 set_memory_usage_level
+/// 完全同款（见其 webview2/mod.rs:1741，Low=1/Normal=0）。
+#[cfg(target_os = "windows")]
+fn set_memory_usage_level(win: &tauri::WebviewWindow, low: bool) {
+    use webview2_com::Microsoft::Web::WebView2::Win32::{
+        COREWEBVIEW2_MEMORY_USAGE_TARGET_LEVEL, ICoreWebView2_19,
+    };
+    let _ = win.with_webview(move |wv| unsafe {
+        use windows_core::Interface;
+        let Ok(core) = wv.controller().CoreWebView2() else { return };
+        let Ok(core19) = core.cast::<ICoreWebView2_19>() else { return };
+        let level = COREWEBVIEW2_MEMORY_USAGE_TARGET_LEVEL(if low { 1 } else { 0 });
+        let _ = core19.SetMemoryUsageTargetLevel(level);
+    });
+}
+
+#[cfg(not(target_os = "windows"))]
+fn set_memory_usage_level(_win: &tauri::WebviewWindow, _low: bool) {}
+
+/// 恢复主窗口（托盘菜单/托盘左键/单实例三处共用）：解最小化 → 显示 → 聚焦 → WebView2 恢复内存级
+fn show_main(app: &tauri::AppHandle) {
+    if let Some(w) = app.get_webview_window("main") {
+        let _ = w.unminimize();
+        let _ = w.show();
+        let _ = w.set_focus();
+        set_memory_usage_level(&w, false);
+    }
+}
+
 /// 通知窗口的当前卡片区高度（逻辑像素），供鼠标穿透判定用
 struct NotifyCtl {
     zone_h: std::sync::Mutex<f64>,
@@ -96,6 +130,8 @@ fn notify_sync(app: tauri::AppHandle, height: f64) {
     if height <= 1.0 {
         *app.state::<NotifyCtl>().zone_h.lock().unwrap() = 0.0;
         let _ = w.hide();
+        // 无卡片：整窗隐藏（可能挂一晚上），提示 WebView2 收缩内存
+        set_memory_usage_level(&w, true);
         return;
     }
     let _ = w.set_size(tauri::LogicalSize::new(376.0, height));
@@ -117,6 +153,8 @@ fn notify_sync(app: tauri::AppHandle, height: f64) {
         ));
     }
     *app.state::<NotifyCtl>().zone_h.lock().unwrap() = height;
+    // 要展示卡片：恢复默认内存目标（渲染不卡）
+    set_memory_usage_level(&w, false);
     let _ = w.show();
 }
 
@@ -220,11 +258,7 @@ pub fn run() {
     tauri::Builder::default()
         // 单实例：第二次启动只把已有主窗口唤到前台，新进程直接退出
         .plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
-            if let Some(w) = app.get_webview_window("main") {
-                let _ = w.unminimize();
-                let _ = w.show();
-                let _ = w.set_focus();
-            }
+            show_main(app); // 第二次启动：唤醒主窗口（含内存级恢复）
         }))
         .plugin(tauri_plugin_autostart::Builder::new().arg("--hidden").build())
         .setup(|app| {
@@ -309,8 +343,14 @@ pub fn run() {
                 .center()
                 .visible(!is_autostart)
                 .focused(!is_autostart)
+                // 磁盘 HTTP 缓存上限 64MB：7×24 常驻的 EBWebView 目录不无限膨胀（图片有 ETag/304 后可被复用）
+                .additional_browser_args("--disk-cache-size=67108864")
                 .initialization_script(&init_js)
                 .build()?;
+            // 开机自启拉起时隐藏：直接进 Low（等用户从托盘打开时再恢复）
+            if is_autostart {
+                set_memory_usage_level(&_main, true);
+            }
 
             // 通知窗口（无边框、置顶、不抢焦点），初始隐藏
             let _notify = tauri::WebviewWindowBuilder::new(app, "notify", tauri::WebviewUrl::App("notify.html".into()))
@@ -323,12 +363,47 @@ pub fn run() {
                 .skip_taskbar(true)
                 .visible(false)
                 .focusable(false)
+                .additional_browser_args("--disk-cache-size=67108864")
                 .initialization_script(&init_js)
                 .build()?;
+            // notify 初始就隐藏（常态），先设 Low 收缩，来单时 notify_sync 会恢复 Normal
+            set_memory_usage_level(&_notify, true);
 
             app.manage(SharedState { server: state, port });
             app.manage(NotifyCtl { zone_h: std::sync::Mutex::new(0.0) });
             spawn_passthrough_polling(app.handle().clone());
+
+            // 每日 4:00：WebView2 渲染内存归零（JS 堆一天一清，防 24h 慢速爬升）。
+            // 只 reload 当前隐藏的窗口——可见窗口说明有人正在用，跳过顺延次日，永不打断操作；
+            // notify reload 后其页面 onMounted 会自动 loadOrders() 重拉未处理订单，不丢单。
+            // 用 winapi GetLocalTime 取本地时间（尊重系统时区），每 60 秒查一次。
+            {
+                let app = app.handle().clone();
+                std::thread::spawn(move || {
+                    let mut last_day: i32 = -1;
+                    loop {
+                        std::thread::sleep(std::time::Duration::from_secs(60));
+                        let (hour, day) = unsafe {
+                            let mut st: winapi::um::minwinbase::SYSTEMTIME = std::mem::zeroed();
+                            winapi::um::sysinfoapi::GetLocalTime(&mut st);
+                            // 日期键用年月日组合（winapi 的 SYSTEMTIME 没有 wDayOfYear）
+                            (st.wHour as i32, st.wYear as i32 * 10000 + st.wMonth as i32 * 100 + st.wDay as i32)
+                        };
+                        if hour != 4 || day == last_day {
+                            continue;
+                        }
+                        last_day = day;
+                        for label in ["main", "notify"] {
+                            if let Some(w) = app.get_webview_window(label) {
+                                // 隐藏才重载（不可见即无感）；可见（有人正在用）跳过，等明天
+                                if !w.is_visible().unwrap_or(true) {
+                                    let _ = w.reload();
+                                }
+                            }
+                        }
+                    }
+                });
+            }
 
             // 托盘：左键单击=打开主窗口；右键菜单=显示/退出
             let show_item = MenuItemBuilder::with_id("show", "显示主窗口").build(app)?;
@@ -341,13 +416,7 @@ pub fn run() {
                 .menu(&menu)
                 .show_menu_on_left_click(false)
                 .on_menu_event(|app, event| match event.id().as_ref() {
-                    "show" => {
-                        if let Some(w) = app.get_webview_window("main") {
-                            let _ = w.unminimize();
-                            let _ = w.show();
-                            let _ = w.set_focus();
-                        }
-                    }
+                    "show" => show_main(app),
                     "quit" => app.exit(0), // 真正退出（HTTP 服务随进程结束）
                     _ => {}
                 })
@@ -358,11 +427,7 @@ pub fn run() {
                         ..
                     } = event
                     {
-                        if let Some(w) = tray.app_handle().get_webview_window("main") {
-                            let _ = w.unminimize();
-                            let _ = w.show();
-                            let _ = w.set_focus();
-                        }
+                        show_main(tray.app_handle());
                     }
                 })
                 .build(app)?;
@@ -374,6 +439,12 @@ pub fn run() {
             if let WindowEvent::CloseRequested { api, .. } = event {
                 api.prevent_close();
                 let _ = window.hide();
+                // 收托盘后可能挂几小时：让主窗口的 WebView2 收缩内存（只是提示，不暂停 JS）
+                if window.label() == "main" {
+                    if let Some(w) = window.get_webview_window("main") {
+                        set_memory_usage_level(&w, true);
+                    }
+                }
             }
         })
         .invoke_handler(tauri::generate_handler![

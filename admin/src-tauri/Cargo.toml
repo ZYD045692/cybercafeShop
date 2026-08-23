@@ -1,6 +1,6 @@
 [package]
 name = "cybercafeShop-admin"
-version = "1.0.0"
+version = "1.1.0"
 edition = "2021"
 description = "网吧点购系统 - 管理端"
 
@@ -20,9 +20,14 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tokio = { version = "1", features = ["rt-multi-thread", "sync"] }
 
-# 通知窗口的透明区域鼠标穿透需要全局光标位置（GetCursorPos）
+# 通知窗口的透明区域鼠标穿透需要全局光标位置（GetCursorPos）；4am 定时查本地时间用 GetLocalTime
 [target.'cfg(windows)'.dependencies]
-winapi = { version = "0.3", features = ["winuser", "wingdi"] }
+winapi = { version = "0.3", features = ["winuser", "wingdi", "sysinfoapi", "minwinbase"] }
+# WebView2 内存目标级：PlatformWebview 在 Windows 只暴露 controller()，走 webview2-com 调
+# ICoreWebView2_19::SetMemoryUsageTargetLevel（与 wry 0.55.1 自身实现同款，见其 webview2/mod.rs:1741）。
+# windows-core 只用于 .cast()，版本必须与 webview2-com-sys 一致（lock 里同一 0.61）。
+webview2-com = "0.38"
+windows-core = "0.61"
 
 [profile.release]
 opt-level = 2

@@ -19,7 +19,7 @@
         <el-switch :model-value="!!p.state" class="sw" @change="toggle(p)"
           :title="p.state ? '在售，点击下架' : '已下架，点击上架'" />
         <div class="pic" @click="edit(p)">
-          <img v-if="p.pic" :src="imgUrl(p.pic) + '?t=' + imgT" loading="lazy">
+          <img v-if="p.pic" :src="imgUrl(p.pic) + '?t=' + (p.pic_t ?? 0)" loading="lazy">
           <span v-else style="color:#cbd5e1;font-size:40px">🥤</span>
         </div>
         <div class="pn">{{ p.name }}</div>
@@ -113,7 +113,7 @@ import { api, post, del as delApi, upload, imgUrl, PORT } from '../api'
 const ImageEditor = defineAsyncComponent(() => import('../components/ImageEditor.vue'))
 
 const products = ref([]), cats = ref([]), loading = ref(true)
-const kw = ref(''), cls = ref(''), stateFilter = ref('all'), imgT = ref(Date.now())
+const kw = ref(''), cls = ref(''), stateFilter = ref('all')
 const editing = ref(false), form = ref({}), preview = ref(''), picBlob = ref(null), err = ref('')
 let previewBlobUrl = '' // 当前 preview 指向的 blob URL（imgUrl 的 http 图不算），换图/卸载时 revoke 防内存泄漏
 function revokePreview() {
@@ -198,7 +198,8 @@ function edit(p) {
   if (!qrImg.value) loadQr()
   if (p) {
     form.value = { id: p.id, name: p.name, class: p.class, abbr: p.abbr, jhj: p.jhj, price: p.price }
-    preview.value = p.pic ? imgUrl(p.pic) + '?t=' + imgT.value : ''
+    // ?t= 用服务端图片版本号（pic_t，文件 mtime）：跨启动/切页稳定，换图后服务器回填新值自动换 URL
+    preview.value = p.pic ? imgUrl(p.pic) + '?t=' + (p.pic_t ?? 0) : ''
   } else {
     form.value = { id: null, name: '', class: cats.value[0]?.name || '', abbr: '', jhj: 0, price: 0 }
     preview.value = ''
@@ -224,9 +225,10 @@ async function save() {
         await upload('/api/admin/product/' + id + '/image', picBlob.value)
       } catch (e) { imgFailed = e.message }
     }
-    // 商品已建好（即使图片失败）：关弹窗 + 提示，避免用户以为失败重复点保存建出重复商品
+    // 商品已建好（即使图片失败）：关弹窗 + 提示，避免用户以为失败重复点保存建出重复商品。
+    // 图片 URL 版本号由服务端 mtime（pic_t）驱动：reload() 回填后网格自动换到新图 URL，
+    // 不再用客户端 Date.now()（那会让每次启动/切页都换 URL，磁盘缓存全灭）
     editing.value = false
-    imgT.value = Date.now()
     ElMessage.success(imgFailed
       ? `商品已保存，但图片上传失败（${imgFailed}），可重新点击编辑补传`
       : (f.id ? '商品已更新' : '商品已添加'))
