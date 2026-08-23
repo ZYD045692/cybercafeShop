@@ -693,7 +693,7 @@ checksum = "52560adf09603e58c9a7ee1fe1dcb95a16927b17c127f0ac02d6e768a0e25bc1"
 
 [[package]]
 name = "cybercafeShop-admin"
-version = "0.4.0"
+version = "1.0.0"
 dependencies = [
  "cybercafeShop-server",
  "serde",
@@ -708,11 +708,12 @@ dependencies = [
 
 [[package]]
 name = "cybercafeShop-server"
-version = "0.4.0"
+version = "1.0.0"
 dependencies = [
  "axum",
  "hex",
  "hmac",
+ "if-addrs",
  "mime_guess",
  "rusqlite",
  "serde",
@@ -1873,6 +1874,16 @@ checksum = "cb68373c0d6620ef8105e855e7745e18b0d00d3bdb07fb532e434244cdb9a714"
 dependencies = [
  "icu_normalizer",
  "icu_properties",
+]
+
+[[package]]
+name = "if-addrs"
+version = "0.15.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c0a05c691e1fae256cf7013d99dad472dc52d5543322761f83ec8d47eab40d2b"
+dependencies = [
+ "libc",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]

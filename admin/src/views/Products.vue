@@ -92,7 +92,7 @@
       </div>
       <div class="catrow">
         <el-input v-model="newCat" placeholder="新分类名" size="small" style="flex:1" />
-        <el-button size="small" type="success" @click="addCat">添加</el-button>
+        <el-button size="small" type="primary" plain @click="addCat">添加</el-button>
       </div>
       <el-alert v-if="catErr" :title="catErr" type="error" :closable="false" style="margin-top:10px" />
     </el-dialog>
@@ -104,6 +104,7 @@
 
 <script setup>
 import { ref, computed, onMounted, watch, onBeforeUnmount, defineAsyncComponent } from 'vue'
+import { listen } from '@tauri-apps/api/event'
 import { pinyin } from 'pinyin-pro'
 import QRCode from 'qrcode'
 import { api, post, del as delApi, upload, imgUrl, PORT } from '../api'
@@ -281,9 +282,18 @@ async function delCat(name) {
   } catch (ex) { catErr.value = ex.message }
 }
 
-onMounted(() => { reload() })
-// 切走商品页（App.vue 的 v-if 卸载）时释放 blob preview / 图片 blob，防常驻内存泄漏
+// 手机端加商品 → 服务端广播 tf-event(type=product) → 本页实时刷新（吧台不用手动切页才能看到新商品）
+let evUnlisten = null
+onMounted(async () => {
+  reload()
+  evUnlisten = await listen('tf-event', ev => {
+    if (ev?.payload?.type === 'product') reload()
+  })
+})
+// 切走商品页（App.vue 的 v-if 卸载）时取消监听 + 释放 blob preview / 图片 blob，
+// 防常驻内存泄漏（不 unlisten 会随切页累积监听、组件卸载后回调仍触发）
 onBeforeUnmount(() => {
+  if (evUnlisten) evUnlisten()
   revokePreview()
   picBlob.value = null
 })

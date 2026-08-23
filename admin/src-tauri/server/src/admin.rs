@@ -376,25 +376,34 @@ fn valid_date(s: &str) -> bool {
         && b.iter().enumerate().all(|(i, c)| i == 4 || i == 7 || c.is_ascii_digit())
 }
 
-/// 本机局域网 IPv4（UDP 路由法：不发包，只让系统选出口网卡）。
-/// 排除回环、代理 fake-ip（198.18/19）、链路本地（169.254）段；拿不到时用 127.0.0.1。
+/// 本机局域网 IPv4（枚举本机网卡取一个，不再依赖连外网/UDP 路由法）。
+/// 之前用 `UdpSocket.connect("223.5.5.5:53")` 取「默认路由出口」的 IP，但当默认路由走到代理/虚拟
+/// 网卡（如 198.18/19 fake-ip）时，拿到的正是要排除的段，退化到 127.0.0.1——网吧常开代理/虚拟网卡，
+/// 二维码就会写成 127。改为枚举网卡：跳过回环、未指定、链路本地（169.254）、代理 fake-ip（198.18/19），
+/// 优先取私有段（192.168/10/172.16-31，吧台局域网），否则取第一个非回环的 IPv4。
 /// 注意：不要用 `ipconfig` 子进程——release 的 GUI 程序没有控制台，启动控制台子进程会瞬间
-/// 弹出一个空白控制台窗口（表现为「切到商品页闪一个透明窗」），这里已踩坑改回 UDP 法。
+/// 弹一个空白控制台窗口（表现为「切到商品页闪一个透明窗」），这里已踩坑。
 fn lan_ip() -> String {
-    if let Ok(udp) = std::net::UdpSocket::bind("0.0.0.0:0") {
-        if udp.connect("223.5.5.5:53").is_ok() {
-            if let Ok(local) = udp.local_addr() {
-                let ip = local.ip();
-                let s = ip.to_string();
-                // 排除回环、代理 fake-ip（198.18/19）、链路本地（169.254，表示网卡根本没拿到地址，手机扫了也连不上）
-                if ip.is_ipv4() && !ip.is_loopback()
-                    && !s.starts_with("198.18.") && !s.starts_with("198.19.") && !s.starts_with("169.254.") {
-                    return s;
+    let mut first_other: Option<String> = None;
+    if let Ok(ifaces) = if_addrs::get_if_addrs() {
+        for iface in ifaces {
+            if let std::net::IpAddr::V4(v4) = iface.ip() {
+                let s = v4.to_string();
+                // 排除回环、未指定、链路本地（网卡没拿到地址，手机扫了也连不上）、代理 fake-ip（198.18/19）
+                if v4.is_loopback() || v4.is_unspecified() || v4.is_link_local()
+                    || s.starts_with("198.18.") || s.starts_with("198.19.") {
+                    continue;
+                }
+                if v4.is_private() {
+                    return s; // 192.168/10/172.16-31：吧台局域网，优先
+                }
+                if first_other.is_none() {
+                    first_other = Some(s);
                 }
             }
         }
     }
-    "127.0.0.1".to_string()
+    first_other.unwrap_or_else(|| "127.0.0.1".to_string())
 }
 
 /// 管理端取本机局域网 IPv4，用于在添加商品弹窗里生成手机端二维码

@@ -178,6 +178,7 @@ pub fn router(st: Arc<AppState>) -> Router {
     let mobile_ctx = Arc::new(crate::mobile::MobileCtx::new(
         st.db.clone(),
         st.dirs.image_dir(),
+        st.events.clone(),
     ));
     // 公开接口：HMAC 时间票门禁，浏览器裸开 IP:端口 = 403。
     // dev/测试 auth=false 时中间件直接放行。

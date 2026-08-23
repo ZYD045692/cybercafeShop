@@ -1,6 +1,6 @@
 [package]
 name = "cybercafeShop-admin"
-version = "0.4.0"
+version = "1.0.0"
 edition = "2021"
 description = "网吧点购系统 - 管理端"
 

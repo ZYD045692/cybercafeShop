@@ -18,7 +18,7 @@
 
 ### 1. 吧台主机：安装管理端
 
-运行 `cybercafeShop-admin_v0.4.0_setup.exe`，按向导装完（装在当前用户目录，不需要管理员权限）。
+运行 `cybercafeShop-admin_v1.0.0_setup.exe`，按向导装完（装在当前用户目录，不需要管理员权限）。
 
 ![安装向导](images/01_安装向导.png)
 

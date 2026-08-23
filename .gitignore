@@ -3,10 +3,8 @@ dist/
 dev-data/
 target/
 package-lock.json
-商品数据包.zip
-# 旧的 /shop/ 托管目录（架构已改为用户端网页内嵌 exe，/shop/ 已废弃）
-web/shop/
-
+数据包.zip
+info.pdf
 # Vite 构建分析产物（bundle-size 分析器生成的，非源码）
 admin/bundle-stats.html
 

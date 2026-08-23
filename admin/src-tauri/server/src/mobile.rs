@@ -22,11 +22,13 @@ use std::sync::Arc;
 pub struct MobileCtx {
     pub db: Db,
     pub image_dir: PathBuf,
+    /// 事件广播：手机端加商品后通知管理端实时刷新商品列表
+    pub events: crate::server::EventTx,
 }
 
 impl MobileCtx {
-    pub fn new(db: Db, image_dir: PathBuf) -> MobileCtx {
-        MobileCtx { db, image_dir }
+    pub fn new(db: Db, image_dir: PathBuf, events: crate::server::EventTx) -> MobileCtx {
+        MobileCtx { db, image_dir, events }
     }
 }
 
@@ -74,7 +76,13 @@ async fn add_product(
         .db
         .upsert_product(None, name, p.class.trim(), &abbr, p.jhj.unwrap_or(0.0), p.price, p.pic.as_deref())
     {
-        Ok(id) => (StatusCode::OK, Json(json!({"ok": true, "id": id}))),
+        Ok(id) => {
+            // 广播商品事件：管理端商品页收到后实时刷新（吧台不用手动切页/重进才能看到手机新加的商品）。
+            // 注意：此刻还没传图（图走第二步 /api/m/product/{id}/image），管理端先看到的是「无图占位」；
+            // 第二步 set_product_pic 成功后还会再补一次广播，见 upload_product_image。
+            let _ = ctx.events.send(json!({ "type": "product", "id": id, "name": name }));
+            (StatusCode::OK, Json(json!({"ok": true, "id": id})))
+        }
         Err(e) => err(StatusCode::BAD_REQUEST, &e),
     }
 }
@@ -116,7 +124,12 @@ async fn upload_product_image(
         return err(StatusCode::INTERNAL_SERVER_ERROR, &e.to_string());
     }
     match ctx.db.set_product_pic(id, &name) {
-        Ok(()) => (StatusCode::OK, Json(json!({"ok": true, "pic": name}))),
+        Ok(()) => {
+            // 图已落盘 + 回填 gds_pic，此时商品才算彻底存好——管理端在 add_product 那次广播
+            // 刷到的是「无图占位」，这里再补一次广播，让它刷新成完整带图商品
+            let _ = ctx.events.send(json!({ "type": "product", "id": id }));
+            (StatusCode::OK, Json(json!({"ok": true, "pic": name})))
+        }
         Err(e) => err(StatusCode::INTERNAL_SERVER_ERROR, &e),
     }
 }
